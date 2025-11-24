@@ -464,11 +464,77 @@ def predict_with_features():
                     label = f"{pred_class} {confidence:.0f}%"
                     # Place text above the bounding box top-left corner
                     cv2.putText(draw_img, label, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+
+                    # --- Specific Detection for Cans ---
+                    if pred_class == 'lata':
+                        detect_can_features(roi, draw_img, x, y)
             
             # Save result
             output_path = os.path.join(output_dir, f"pred_{filename}")
             cv2.imwrite(output_path, draw_img)
             print(f"Saved prediction to {output_path}")
+
+def detect_can_features(roi_img, draw_img, offset_x, offset_y):
+    """
+    Detects holes (agujeros) and rings (anillas) in a can ROI.
+    Draws directly on draw_img using offsets.
+    """
+    # Convert to gray for feature detection
+    if len(roi_img.shape) == 3:
+        gray_roi = cv2.cvtColor(roi_img, cv2.COLOR_BGR2GRAY)
+    else:
+        gray_roi = roi_img
+
+    # --- Hole Detection (Dark circular regions) ---
+    # Invert because holes are usually dark
+    # Adaptive threshold to find dark spots locally
+    thresh_hole = cv2.adaptiveThreshold(gray_roi, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+                                      cv2.THRESH_BINARY_INV, 11, 2)
+    
+    # Filter by size and circularity
+    contours_hole, _ = cv2.findContours(thresh_hole, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    
+    for cnt in contours_hole:
+        area = cv2.contourArea(cnt)
+        if 50 < area < 1500: # Typical size for a drinking hole
+            perimeter = cv2.arcLength(cnt, True)
+            if perimeter > 0:
+                circularity = 4 * np.pi * area / (perimeter * perimeter)
+                if circularity > 0.6: # Reasonably circular
+                    # Found a potential hole
+                    x, y, w, h = cv2.boundingRect(cnt)
+                    # Draw on main image
+                    cv2.rectangle(draw_img, (offset_x + x, offset_y + y), 
+                                  (offset_x + x + w, offset_y + y + h), (0, 255, 255), 2)
+                    cv2.putText(draw_img, "Agujero", (offset_x + x, offset_y + y - 5), 
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 255), 1)
+
+    # --- Ring Detection (Pull-tab) ---
+    # Rings are often shiny/metallic, so we look for edges or specific shapes
+    edges = cv2.Canny(gray_roi, 50, 150)
+    contours_ring, hierarchy = cv2.findContours(edges, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
+    
+    if hierarchy is not None:
+        hierarchy = hierarchy[0]
+        for i, cnt in enumerate(contours_ring):
+            # Look for contours with children (nested holes)
+            if hierarchy[i][2] != -1: 
+                area = cv2.contourArea(cnt)
+                if 100 < area < 2000: # Typical size for a pull-tab
+                    x, y, w, h = cv2.boundingRect(cnt)
+                    aspect_ratio = float(w) / h
+                    # Pull tabs are often slightly elongated or oval
+                    if 0.5 < aspect_ratio < 2.0:
+                        # Check solidity - rings have low solidity because of the hole
+                        hull = cv2.convexHull(cnt)
+                        hull_area = cv2.contourArea(hull)
+                        if hull_area > 0:
+                            solidity = float(area) / hull_area
+                            if solidity < 0.8: # Likely has a hole
+                                cv2.rectangle(draw_img, (offset_x + x, offset_y + y), 
+                                              (offset_x + x + w, offset_y + y + h), (255, 0, 255), 2)
+                                cv2.putText(draw_img, "Anilla", (offset_x + x, offset_y + y - 5), 
+                                            cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 0, 255), 1)
 
 if __name__ == '__main__':
     predict_with_features()

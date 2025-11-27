@@ -300,9 +300,21 @@ class FeatureExtractor:
                 features['edge_density_body'] = float(np.sum(body_edges > 0) / body_pixels)
             else:
                 features['edge_density_body'] = 0.0
+
+            # === NUEVO: densidad de bordes del tapón (banda muy superior) ===
+            cap_h = max(1, int(h * 0.15))         # 15% de la altura: zona del tapón
+            cap_edges = internal_edges[y:y + cap_h, x:x + w]
+            cap_pixels = cap_edges.size
+
+            if cap_pixels > 0:
+                features['cap_edge_density'] = float(np.sum(cap_edges > 0) / cap_pixels)
+            else:
+                features['cap_edge_density'] = 0.0
         else:
             features['edge_density_top'] = 0.0
             features['edge_density_body'] = 0.0
+            features['cap_edge_density'] = 0.0
+
 
         # Homogeneidad
         if len(masked_gray) > 0:

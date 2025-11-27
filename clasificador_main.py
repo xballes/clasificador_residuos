@@ -133,17 +133,17 @@ class WasteClassificationSystem:
             }
             results.append(result)
             
-        if verbose:
-            print("    metallic_score =", features.get("metallic_score"))
-            print("    specular_ratio =", features.get("specular_ratio"))
-            print("    specular_ratio_top =", features.get("specular_ratio_top"))
-            print("    gradient_mean =", features.get("gradient_mean"))
-            print("    is_metallic_color =", features.get("is_metallic_color"))
-            print("    is_transparent_color =", features.get("is_transparent_color"))
-            print("    is_brown_color =", features.get("is_brown_color"))
-            print("    circularity =", features.get("circularity"))
-            print("    elongation_ratio =", features.get("elongation_ratio"))
-            print("    edge_density_top =", features.get("edge_density_top"))
+            if verbose:
+                print("    metallic_score =", features.get("metallic_score"))
+                print("    specular_ratio =", features.get("specular_ratio"))
+                print("    specular_ratio_top =", features.get("specular_ratio_top"))
+                print("    gradient_mean =", features.get("gradient_mean"))
+                print("    is_metallic_color =", features.get("is_metallic_color"))
+                print("    is_transparent_color =", features.get("is_transparent_color"))
+                print("    is_brown_color =", features.get("is_brown_color"))
+                print("    circularity =", features.get("circularity"))
+                print("    elongation_ratio =", features.get("elongation_ratio"))
+                print("    edge_density_top =", features.get("edge_density_top"))
 
         
         # 4. Crear visualización

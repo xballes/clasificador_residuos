@@ -1,324 +1,278 @@
 import numpy as np
-from typing import Dict, Tuple, Optional
+from typing import Dict, Tuple
 
 
 class WasteClassifier:
     """
-    Clasificador de residuos basado en características extraídas.
-    Clasifica objetos en: LATA, BOTELLA, CARTON
-    
-    Usa un sistema de puntuación basado en reglas para cada clase.
+    Clasificador de residuos basado en reglas sencillas.
+
+    Clases:
+        - LATA
+        - BOTELLA
+        - CARTON
+
+    La idea es:
+        1) Separar objetos METÁLICOS de NO METÁLICOS.
+        2) En los NO METÁLICOS, distinguir BOTELLA (alargada / tapa circular)
+           de CARTON (rectangular tipo brick).
     """
-    
-    # Clases de objetos
+
     CLASS_CAN = "LATA"
     CLASS_BOTTLE = "BOTELLA"
     CLASS_CARDBOARD = "CARTON"
     CLASS_UNKNOWN = "DESCONOCIDO"
-    
-    def __init__(self, confidence_threshold: float = 0.4):
+
+    def __init__(self, confidence_threshold: float = 0.5):
         """
         Args:
-            confidence_threshold: Umbral mínimo de confianza para clasificar
+            confidence_threshold: mínimo de confianza para aceptar una clase.
         """
         self.confidence_threshold = confidence_threshold
-    
+
     def classify(self, features: Dict[str, float]) -> Tuple[str, float, Dict[str, float]]:
         """
-        Clasifica un objeto basándose en sus características.
-        
-        Args:
-            features: Diccionario de características extraídas
-            
-        Returns:
-            Tupla (clase, confianza, scores) donde:
-            - clase: Clase predicha (LATA, BOTELLA, CARTON, DESCONOCIDO)
-            - confianza: Confianza de la predicción [0, 1]
-            - scores: Puntuaciones para cada clase
+        Clasifica un objeto a partir de sus características.
+
+        Devuelve:
+            (clase_predicha, confianza [0,1], diccionario_scores_por_clase)
         """
-        # Calcular puntuación para cada clase
         scores = {
-            self.CLASS_CAN: self._score_can(features),
-            self.CLASS_BOTTLE: self._score_bottle(features),
-            self.CLASS_CARDBOARD: self._score_cardboard(features)
+            self.CLASS_CAN:        self._score_can(features),
+            self.CLASS_BOTTLE:     self._score_bottle(features),
+            self.CLASS_CARDBOARD:  self._score_cardboard(features),
         }
-        
-        # Encontrar la clase con mayor puntuación
+
+        # Elegir mejor clase
         best_class = max(scores, key=scores.get)
-        best_score = scores[best_class]
-        
-        # Normalizar scores a [0, 1]
-        total_score = sum(scores.values())
-        if total_score > 0:
-            confidence = best_score / total_score
-        else:
+        raw_vals = np.array(list(scores.values()), dtype=float)
+
+        # Normalizamos a [0,1] para sacar algo tipo "probabilidad"
+        raw_vals -= raw_vals.min()
+        total = raw_vals.sum()
+        if total <= 0:
             confidence = 0.0
-        
-        # Verificar umbral de confianza
+        else:
+            probs = raw_vals / total
+            confidence = float(probs[list(scores.keys()).index(best_class)])
+
+        # Si la confianza es baja, devolvemos DESCONOCIDO
         if confidence < self.confidence_threshold:
             return self.CLASS_UNKNOWN, confidence, scores
-        
+
         return best_class, confidence, scores
-    
+
+    # ------------------------------------------------------------------ #
+    # LATA
+    # ------------------------------------------------------------------ #
     def _score_can(self, f: Dict[str, float]) -> float:
         """
-        Calcula puntuación para LATA.
-        
-        Características de latas:
-        - CILÍNDRICAS (Aquarius): Alta circularidad, forma compacta
-        - RECTANGULARES (Smints): Baja circularidad, 4-6 vértices, forma rectangular
-        - Metalicidad moderada-alta
-        - Tamaño pequeño-mediano
-        - Colores vivos (amarillo, rojo, azul, verde) o metálicos
+        Puntuación para LATA.
+
+        Solo queremos dar buena puntuación a objetos claramente metálicos,
+        ni demasiado alargados y con forma razonablemente compacta.
         """
         score = 0.0
-        
-        # Detectar tipo de lata: cilíndrica vs rectangular
-        circularity = f.get('circularity', 0.0)
-        num_vertices = f.get('num_vertices', 0)
-        aspect_ratio = f.get('aspect_ratio', 0.0)
-        
-        is_cylindrical = circularity > 0.5
-        is_rectangular = (num_vertices >= 4 and num_vertices <= 8 and 
-                         circularity < 0.4 and 
-                         0.3 < aspect_ratio < 3.0)
-        
-        # Forma (peso: 20%)
-        if is_cylindrical:
-            # Lata cilíndrica vista desde arriba
-            if circularity > 0.7:
-                score += 20.0
-            elif circularity > 0.5:
-                score += 15.0
-        elif is_rectangular:
-            # Lata rectangular (Smints)
-            score += 18.0
-        else:
-            # Forma intermedia (lata cilíndrica en ángulo)
-            if circularity > 0.3:
-                score += 12.0
-            elif circularity > 0.15:
-                score += 8.0
-        
-        # Metalicidad (peso: 18%)
-        metallic_score = f.get('metallic_score', 0.0)
-        score += metallic_score * 18.0
-        
-        # Color vivo o metálico (peso: 25%)
-        hue = f.get('hue_mean', 0.0)
-        saturation = f.get('saturation_mean', 0.0)
-        
-        # Amarillo (típico de latas): hue ~20-40
-        if 15 <= hue <= 45 and saturation > 100:
-            score += 25.0
-        # Rojo (latas de Coca-Cola, etc): hue ~0-10 o ~170-180
-        elif (hue <= 10 or hue >= 170) and saturation > 100:
-            score += 20.0
-        # Verde/Cyan (latas de Sprite, Heineken, Aquarius): hue ~80-110
-        elif 75 <= hue <= 115 and saturation > 40:
-            score += 22.0
-        # Azul (latas de Pepsi, etc): hue ~110-140
-        elif 110 <= hue <= 140 and saturation > 80:
-            score += 20.0
-        # Color metálico
-        elif f.get('is_metallic_color', 0.0) > 0.5:
-            score += 15.0
-        # Cualquier color con saturación moderada-alta (latas de colores)
-        elif saturation > 60:
-            score += 12.0
-        
-        # Reflexiones especulares (peso: 12%)
-        specular_ratio = f.get('specular_ratio', 0.0)
-        score += specular_ratio * 12.0
-        
-        # Tamaño (peso: 15%) - ajustado para ambos tipos de latas
-        area = f.get('area', 0.0)
-        if 1000 < area < 25000:  # Tamaño típico de lata
-            score += 15.0
-        elif 500 < area < 35000:
-            score += 10.0
-        
-        # Compacidad (peso: 10%) - latas son objetos compactos
-        compactness = f.get('compactness', 0.0)
-        if compactness > 15:
-            score += 10.0
-        elif compactness > 10:
-            score += 7.0
-        elif compactness > 5:
-            score += 4.0
-        
-        return score
     
+        area        = f.get("area", 0.0)
+        circularity = f.get("circularity", 0.0)
+        aspect      = f.get("aspect_ratio", 1.0)
+        elong       = f.get("elongation_ratio", 1.0)
+        metallic    = f.get("metallic_score", 0.0)
+        is_met_col  = f.get("is_metallic_color", 0.0) > 0.5
+        spec_top    = f.get("specular_ratio_top", 0.0)
+        edge_top    = f.get("edge_density_top", 0.0)
+        num_vert    = f.get("num_vertices", 0)
+
+        # 1) Filtro duro: si no es claramente metálico, no queremos lata
+        if metallic < 0.45 and not is_met_col:
+            return -40.0   # MUCHO más penalizador
+
+        if not is_met_col:
+            metallic *= 0.3  # reduce el score si no es color metálico REAL
+
+        # 2) Forma: compacta y no muy alargada
+        #    - lata vista desde arriba → circular
+        #    - lata de lado → rectángulo corto
+        if 0.6 <= circularity <= 1.1 and 0.5 <= aspect <= 2.0 and elong <= 3.0:
+            score += 40.0
+        elif 0.4 <= circularity <= 0.9 and elong <= 3.5:
+            score += 25.0
+
+        # Rectangular (tipo caja metálica)
+        if 4 <= num_vert <= 8 and circularity < 0.6 and 0.4 < aspect < 2.5:
+            score += 15.0
+
+        # Penalizar cosas muy alargadas (más típico de botella tumbada)
+        if elong > 4.0:
+            score -= 25.0
+        elif elong > 3.0:
+            score -= 10.0
+
+        # 3) Metalicidad
+        score += metallic * 25.0
+        score += spec_top * 10.0
+        score += edge_top * 5.0
+
+        # 4) Tamaño típico de lata
+        if 1500 <= area <= 25000:
+            score += 10.0
+
+        return score
+
+    # ------------------------------------------------------------------ #
+    # BOTELLA
+    # ------------------------------------------------------------------ #
     def _score_bottle(self, f: Dict[str, float]) -> float:
         """
-        Calcula puntuación para BOTELLA.
-        
-        Características de botellas:
-        - Forma alargada (aspect ratio alto o bajo dependiendo de orientación)
-        - Baja metalicidad
-        - Transparencia/translucidez (colores claros, baja saturación)
-        - Tamaño mediano-grande
-        - Baja circularidad
-        - NO colores vivos (amarillo, rojo, azul saturado)
-        - NO forma compacta (las latas son más compactas)
+        Puntuación para BOTELLA.
+
+        Botella =
+            - poco metálica
+            - bastante alargada (tumbada o de pie)
+            - o disco no metálico (vista desde arriba)
         """
         score = 0.0
-        
-        # Forma alargada (peso: 30%) - AUMENTADO
-        aspect_ratio = f.get('aspect_ratio', 0.0)
-        if aspect_ratio > 3.0 or aspect_ratio < 0.33:
-            score += 30.0
-        elif aspect_ratio > 2.5 or aspect_ratio < 0.4:
+
+        area        = f.get("area", 0.0)
+        circularity = f.get("circularity", 0.0)
+        aspect      = f.get("aspect_ratio", 1.0)
+        elong       = f.get("elongation_ratio", 1.0)
+        metallic    = f.get("metallic_score", 0.0)
+        is_met_col  = f.get("is_metallic_color", 0.0) > 0.5
+        is_trans    = f.get("is_transparent_color", 0.0) > 0.5
+        sat         = f.get("saturation_mean", 0.0)
+
+        # 1) Preferimos muy poco metal
+        if metallic < 0.25 and not is_met_col:
             score += 25.0
-        elif aspect_ratio > 2.0 or aspect_ratio < 0.5:
-            score += 20.0
-        elif aspect_ratio > 1.5 or aspect_ratio < 0.67:
-            score += 12.0
-        
-        # Baja metalicidad (peso: 20%)
-        metallic_score = f.get('metallic_score', 0.0)
-        score += (1.0 - metallic_score) * 20.0
-        
-        # Transparencia/translucidez (peso: 25%)
-        saturation = f.get('saturation_mean', 0.0)
-        hue = f.get('hue_mean', 0.0)
-        
-        # Botellas suelen tener baja saturación
-        if saturation < 50:
+        elif metallic < 0.4 and not is_met_col:
             score += 15.0
-        elif saturation < 80:
-            score += 8.0
-        
-        # Color transparente
-        if f.get('is_transparent_color', 0.0) > 0.5:
+        else:
+            score -= 15.0   # muy metálico → no botella
+
+        # 2) Forma alargada (botella de lado o de pie)
+        if elong > 4.0:
+            score += 30.0
+        elif elong > 3.0:
+            score += 25.0
+        elif elong > 2.0:
+            score += 18.0
+
+        if aspect > 3.0 or aspect < 1 / 3:
+            score += 20.0
+        elif aspect > 2.0 or aspect < 0.5:
+            score += 12.0
+
+        # 3) Botella vista desde arriba: disco NO metálico
+        if circularity > 0.8 and metallic < 0.3 and not is_met_col:
+            score += 20.0
+
+        # 4) Transparente / poco saturado → plástico típico
+        if is_trans:
+            score += 15.0
+        if sat < 80:
             score += 10.0
-        
-        # Penalizar colores vivos (típicos de latas) - AUMENTADO
-        if saturation > 120:
-            score -= 15.0  # Aumentado de 10 a 15
-        elif saturation > 90:
-            score -= 8.0
-        
-        # Baja circularidad (peso: 10%)
-        circularity = f.get('circularity', 0.0)
-        if circularity < 0.3:
+
+        # 5) Tamaño típico de botella (más grande que lata normal)
+        if 5000 <= area <= 45000:
             score += 10.0
-        elif circularity < 0.5:
-            score += 6.0
-        elif circularity < 0.6:
-            score += 3.0
-        
-        # Penalizar alta circularidad (típico de latas)
-        if circularity > 0.6:
-            score -= 10.0
-        
-        # Tamaño mediano-grande (peso: 10%)
-        area = f.get('area', 0.0)
-        if 8000 < area < 35000:
-            score += 10.0
-        elif 5000 < area < 45000:
-            score += 5.0
-        
-        # Penalizar tamaño muy pequeño (típico de latas)
-        if area < 5000:
-            score -= 10.0
-        
-        # Homogeneidad (botellas suelen ser lisas) (peso: 5%)
-        homogeneity = f.get('homogeneity', 0.0)
-        score += homogeneity * 5.0
-        
-        # Penalizar alta compacidad (típico de latas)
-        compactness = f.get('compactness', 0.0)
-        if compactness > 15:
-            score -= 10.0
-        
+
         return score
-    
+
+    # ------------------------------------------------------------------ #
+    # CARTON
+    # ------------------------------------------------------------------ #
     def _score_cardboard(self, f: Dict[str, float]) -> float:
         """
-        Calcula puntuación para CARTON.
-        
-        Características de cartón:
-        - Baja circularidad
-        - Textura mate (baja metalicidad)
-        - Colores marrones/beige
-        - Forma rectangular (4-6 vértices)
-        - Baja homogeneidad (textura visible)
+        Puntuación para CARTON (brick, caja, etc.).
         """
         score = 0.0
-        
-        # Forma rectangular (peso: 25%)
-        num_vertices = f.get('num_vertices', 0)
-        if 4 <= num_vertices <= 6:
-            score += 25.0
-        elif 3 <= num_vertices <= 8:
-            score += 15.0
-        
-        # Baja circularidad (peso: 20%)
-        circularity = f.get('circularity', 0.0)
-        if circularity < 0.4:
+
+        area        = f.get("area", 0.0)
+        circularity = f.get("circularity", 0.0)
+        aspect      = f.get("aspect_ratio", 1.0)
+        elong       = f.get("elongation_ratio", 1.0)
+        metallic    = f.get("metallic_score", 0.0)
+        is_met_col  = f.get("is_metallic_color", 0.0) > 0.5
+        num_vert    = f.get("num_vertices", 0)
+        is_brown    = f.get("is_brown_color", 0.0) > 0.5
+        hue         = f.get("hue_mean", 0.0)
+        sat         = f.get("saturation_mean", 0.0)
+        val         = f.get("value_mean", 0.0)
+        tex_var     = f.get("texture_variance", 0.0)
+        homo        = f.get("homogeneity", 0.0)
+        spec_top    = f.get("specular_ratio_top", 0.0)
+        edge_top    = f.get("edge_density_top", 0.0)
+
+        # 1) No metálico casi siempre
+        if metallic < 0.25 and not is_met_col:
             score += 20.0
-        elif circularity < 0.5:
-            score += 15.0
-        elif circularity < 0.6:
+        elif metallic < 0.4 and not is_met_col:
             score += 10.0
-        
-        # Color marrón/beige (peso: 25%)
-        if f.get('is_brown_color', 0.0) > 0.5:
-            score += 25.0
         else:
-            # Verificar manualmente
-            hue = f.get('hue_mean', 0.0)
-            saturation = f.get('saturation_mean', 0.0)
-            if 10 <= hue <= 30 and 20 <= saturation <= 150:
-                score += 15.0
-        
-        # Baja metalicidad (peso: 15%)
-        metallic_score = f.get('metallic_score', 0.0)
-        score += (1.0 - metallic_score) * 15.0
-        
-        # Textura (cartón tiene textura visible) (peso: 10%)
-        texture_variance = f.get('texture_variance', 0.0)
-        if 100 < texture_variance < 1000:
+            score -= 20.0
+
+        # 2) Forma rectangular / brick
+        if 4 <= num_vert <= 6:
+            score += 25.0
+        elif 3 <= num_vert <= 8:
+            score += 15.0
+
+        if 0.6 <= aspect <= 1.4:
+            score += 15.0
+        elif 0.4 <= aspect <= 2.0:
+            score += 8.0
+
+        if circularity < 0.5:
+            score += 20.0
+        elif circularity < 0.7:
             score += 10.0
-        elif 50 < texture_variance < 1500:
-            score += 5.0
-        
-        # Baja homogeneidad (peso: 5%)
-        homogeneity = f.get('homogeneity', 0.0)
-        score += (1.0 - homogeneity) * 5.0
-        
-        return score
     
+        # 4) Textura: algo de textura (no totalmente liso)
+        if 50 < tex_var < 1500:
+            score += 8.0
+        score += (1.0 - homo) * 8.0  # menos homogéneo → más cartón
+
+        # 5) Evitar cosas muy alargadas (eso suelen ser botellas)
+        if elong > 4.0:
+            score -= 20.0
+        elif elong > 3.0:
+            score -= 10.0
+
+        # 6) Penalizar tapa metálica tipo lata
+        if spec_top > 0.02 and edge_top > 0.02:
+            score -= 10.0
+
+        # 7) Tamaño razonable
+        if area < 1500:
+            score -= 10.0
+
+        return score
+
+    # ------------------------------------------------------------------ #
+    # Utilidades visualización
+    # ------------------------------------------------------------------ #
     def get_class_color(self, class_name: str) -> Tuple[int, int, int]:
-        """
-        Retorna el color BGR para visualización de cada clase.
-        
-        Args:
-            class_name: Nombre de la clase
-            
-        Returns:
-            Tupla (B, G, R) con valores 0-255
-        """
+        """Color BGR para dibujar cada clase."""
         colors = {
-            self.CLASS_CAN: (0, 255, 255),      # Amarillo (metálico)
-            self.CLASS_BOTTLE: (255, 0, 0),     # Azul (transparente)
-            self.CLASS_CARDBOARD: (0, 165, 255), # Naranja (cartón)
-            self.CLASS_UNKNOWN: (128, 128, 128)  # Gris
+            self.CLASS_CAN:       (0, 255, 255),   # Amarillo
+            self.CLASS_BOTTLE:    (255, 0, 0),     # Azul
+            self.CLASS_CARDBOARD: (0, 165, 255),   # Naranja
+            self.CLASS_UNKNOWN:   (128, 128, 128)  # Gris
         }
         return colors.get(class_name, (255, 255, 255))
-    
-    def print_classification(self, class_name: str, confidence: float, 
-                           scores: Dict[str, float], indent: int = 0):
-        """
-        Imprime el resultado de clasificación de forma legible.
-        """
+
+    def print_classification(
+        self,
+        class_name: str,
+        confidence: float,
+        scores: Dict[str, float],
+        indent: int = 0,
+    ):
         prefix = "  " * indent
-        
         print(f"{prefix}=== CLASSIFICATION RESULT ===")
         print(f"{prefix}Predicted Class: {class_name}")
         print(f"{prefix}Confidence: {confidence:.2%}")
-        print(f"{prefix}")
-        print(f"{prefix}Scores by class:")
-        for cls, score in scores.items():
-            print(f"{prefix}  {cls}: {score:.2f}")
+        print(f"{prefix}Scores:")
+        for cls, s in scores.items():
+            print(f"{prefix}  {cls}: {s:.2f}")

@@ -72,16 +72,26 @@ class ROIDetector:
         if detect_box:
             box_region = self._detect_left_box(image)
             if box_region is not None:
-                info['box_region'] = box_region
                 x, y, w_box, h_box = box_region
-                # Aplicar margen
-                x = max(0, x - self.margin)
-                y = max(0, y - self.margin)
-                w_box = min(w - x, w_box + 2 * self.margin)
-                h_box = min(h - y, h_box + 2 * self.margin)
-                
-                mask[y:y+h_box, x:x+w_box] = 0
+
+                # --- desplazar un poco la zona de la caja hacia la derecha ---
+                # por ejemplo, mover un 10% del ancho de la caja
+                shift = int(w_box * 0.10)
+                x = min(x + shift, w - w_box)
+                w_box = w_box  # mantenemos el ancho original
+
+                # Guardar la caja para visualización (sin margen)
+                info['box_region'] = (x, y, w_box, h_box)
+
+                # Aplicar margen alrededor de la caja
+                x_roi = max(0, x - self.margin)
+                y_roi = max(0, y - self.margin)
+                w_roi = min(w - x_roi, w_box + 3 * self.margin)
+                h_roi = min(h - y_roi, h_box + 3 * self.margin)
+
+                mask[y_roi:y_roi + h_roi, x_roi:x_roi + w_roi] = 0
                 info['excluded_areas'] += 1
+
         
         return mask, info
     

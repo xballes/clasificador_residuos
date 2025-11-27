@@ -61,30 +61,38 @@ class WasteClassifier:
 
         return best_class, confidence, scores
 
-       # ================================
+        # ================================
     # LATA
     # ================================
     def _score_can(self, f: Dict[str, float]) -> float:
-        metallic = f.get("metallic_score", 0.0)
-        circ     = f.get("circularity", 0.0)
-        elong    = f.get("elongation_ratio", 1.0)
-        aspect   = f.get("aspect_ratio", 1.0)
-        edge_top = f.get("edge_density_top", 0.0)
+        metallic   = f.get("metallic_score", 0.0)
+        is_met_col = f.get("is_metallic_color", 0.0) > 0.5
+        circ       = f.get("circularity", 0.0)
+        elong      = f.get("elongation_ratio", 1.0)
+        aspect     = f.get("aspect_ratio", 1.0)
+        edge_top   = f.get("edge_density_top", 0.0)
 
         score = 0.0
 
-        # --- Lata circular (Aquarius) ---
-        # Círculo bastante perfecto, muy metálico, muchos bordes en la tapa
-        if metallic > 0.55 and circ > 0.80 and edge_top > 0.09:
-            score += 5.0
+        # Metal (común a todas las latas)
+        if metallic > 0.50:
+            score += 2.0
+        if is_met_col:
+            score += 1.0
 
-        # --- Lata rectangular (Smints) ---
-        # Rectangular metálica, no extremadamente alargada
-        if metallic > 0.55 and 1.3 <= elong <= 4.0 and aspect > 1.2:
-            score += 4.0
+        # Lata "disco" (Aquarius, disco amarillo…)
+        if circ > 0.55 and elong < 1.8:
+            score += 2.5
 
-        # Penalizar cosas exageradamente largas (eso es botella)
-        if elong > 4.0:
+        # Lata rectangular (Smints):
+        # metálica y alargada, pero NO demasiado
+        if 1.4 <= elong <= 2.4:
+            score += 3.0
+
+        # Si está demasiado alargada, ya no parece lata
+        if elong > 2.4:
+            score -= 2.0
+        if elong > 3.5:
             score -= 3.0
 
         return score
@@ -98,47 +106,60 @@ class WasteClassifier:
         elong    = f.get("elongation_ratio", 1.0)
         aspect   = f.get("aspect_ratio", 1.0)
         edge_top = f.get("edge_density_top", 0.0)
+        spec_top = f.get("specular_ratio_top", 0.0)
 
         score = 0.0
 
-        # --- Botella tumbada: muy alargada ---
-        if elong > 2.2 or aspect > 2.2 or aspect < 1.0 / 2.2:
-            score += 5.0
+        # Botella tumbada: muy alargada
+        if elong > 2.4 or aspect > 2.4 or aspect < 1.0 / 2.4:
+            score += 6.0       # botella clarísima
+        elif elong > 2.0 or aspect > 2.0 or aspect < 0.5:
+            score += 4.0       # bastante alargada
 
-        # --- Botella de pie: círculo NO tan metálico y sin agujero ---
-        if circ > 0.80 and metallic < 0.55 and edge_top < 0.09:
+        # Botella de pie: cuadrada, spec_top bajo, pocos bordes arriba
+        is_square = 0.70 <= aspect <= 1.30 and elong < 1.8
+        if is_square and spec_top < 0.2 and edge_top < 0.06:
             score += 4.0
 
-        # Si es círculo muy metálico con muchos bordes, casi seguro es lata
-        if circ > 0.80 and metallic > 0.65 and edge_top > 0.09:
-            score -= 4.0
+        # Ligera preferencia por botellas poco metálicas
+        if metallic < 0.6:
+            score += 1.0
 
         return score
+
 
     # ================================
     # CARTON
     # ================================
     def _score_cardboard(self, f: Dict[str, float]) -> float:
-        metallic = f.get("metallic_score", 0.0)
-        circ     = f.get("circularity", 0.0)
-        elong    = f.get("elongation_ratio", 1.0)
-        aspect   = f.get("aspect_ratio", 1.0)
+        metallic   = f.get("metallic_score", 0.0)
+        is_met_col = f.get("is_metallic_color", 0.0) > 0.5
+        circ       = f.get("circularity", 0.0)
+        elong      = f.get("elongation_ratio", 1.0)
+        aspect     = f.get("aspect_ratio", 1.0)
+        spec_top   = f.get("specular_ratio_top", 0.0)
+        edge_top   = f.get("edge_density_top", 0.0)
 
         score = 0.0
 
-        # --- Forma cuadrada: tus bricks verde/blanco ---
-        if 0.70 <= aspect <= 1.30 and elong < 2.0 and circ < 0.80:
-            score += 5.0
+        is_square = 0.70 <= aspect <= 1.30 and elong < 1.8
 
-        # No exigimos metalicidad baja (porque el cartón verde brilla mucho),
-        # solo penalizamos si parece claramente un círculo (tipo lata arriba).
-        if circ > 0.80:
+        # Forma cuadrada (tus bricks verde/blanco)
+        if is_square:
+            score += 3.5
+
+        # Cartones: parte superior muy brillante (spec_top alto)
+        if spec_top > 0.5:
+            score += 4.0
+        elif spec_top < 0.2:
+            # Muy poco brillo arriba → probablemente NO sea cartón
+            score -= 2.0
+
+        # Si además es muy circular y metálico, es más probable que sea una lata
+        if circ > 0.85 and metallic > 0.6 and edge_top > 0.06:
             score -= 3.0
 
         return score
-
-
-
 
     # ------------------------------------------------------------------ #
     # Utilidades visualización

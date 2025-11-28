@@ -172,7 +172,10 @@ class FeatureExtractor:
                             (15 <= mean_hsv[0] <= 45 and mean_hsv[1] > 100)
         features['is_metallic_color'] = 1.0 if is_metallic_color else 0.0
 
-        is_transparent = mean_hsv[1] < 40 and mean_hsv[2] < 100
+        # Modificado: Detectar plástico blanco o transparente
+        # Antes exigía V < 100, lo que excluía botellas blancas.
+        # Ahora buscamos baja saturación en general.
+        is_transparent = mean_hsv[1] < 60 
         features['is_transparent_color'] = 1.0 if is_transparent else 0.0
 
         is_brown = (10 <= mean_hsv[0] <= 30 and 20 <= mean_hsv[1] <= 150)

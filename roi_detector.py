@@ -5,18 +5,21 @@ from typing import Tuple, List, Optional
 
 class ROIDetector:
     """
-    Detecta y excluye áreas no deseadas de la imagen:
-    - Marcadores ArUco en las esquinas
-    - Caja de la izquierda
-    Genera una máscara ROI válida para detección de objetos.
+    Genera una máscara ROI válida para detección de objetos:
+    - Parte interior de la cartulina negra (recortada con margen)
+    - Excluyendo caja de la izquierda
+    - Excluyendo marcadores ArUco
     """
     
-    def __init__(self, margin: int = 20):
+    def __init__(self, margin: int = 20, board_inner_margin: int = 25):
         """
         Args:
             margin: Margen adicional alrededor de áreas excluidas (píxeles)
+            board_inner_margin: Cuánto recortar hacia dentro el tablero negro
+                                por cada lado, en píxeles. Controla la zona naranja.
         """
         self.margin = margin
+        self.board_inner_margin = board_inner_margin
         
         # Inicializar detector de ArUco - probar múltiples diccionarios
         self.aruco_dicts = [
@@ -29,9 +32,10 @@ class ROIDetector:
         ]
     
     def create_roi_mask(self, image: np.ndarray, 
-                       detect_aruco: bool = True,
-                       detect_box: bool = True,
-                       debug: bool = False) -> Tuple[np.ndarray, dict]:
+                        detect_aruco: bool = True,
+                        detect_box: bool = True,
+                        detect_board: bool = True,
+                        debug: bool = False) -> Tuple[np.ndarray, dict]:
         """
         Crea una máscara ROI excluyendo áreas no deseadas.
         
@@ -39,8 +43,9 @@ class ROIDetector:
             image: Imagen de entrada en BGR
             detect_aruco: Si True, detecta y excluye marcadores ArUco
             detect_box: Si True, detecta y excluye la caja de la izquierda
-            debug: Si True, retorna información de debug
-            
+            detect_board: Si True, detecta el tablero negro (Otsu) y excluye lo de fuera
+            debug: Si True, imprime avisos
+        
         Returns:
             Tupla (mask, info) donde:
             - mask: Máscara binaria (255 = ROI válido, 0 = excluido)
@@ -48,16 +53,56 @@ class ROIDetector:
         """
         h, w = image.shape[:2]
         
-        # Inicializar máscara (todo válido)
-        mask = np.ones((h, w), dtype=np.uint8) * 255
+        # Inicializar máscara
+        if detect_board:
+            mask = np.zeros((h, w), dtype=np.uint8)
+        else:
+            mask = np.ones((h, w), dtype=np.uint8) * 255
         
         info = {
             'aruco_markers': [],
             'box_region': None,
+            'board_contour': None,
+            'inner_board_rect': None,
             'excluded_areas': 0
         }
         
-        # Detectar y excluir ArUco markers
+        # 1. Detectar tablero (zona válida base) usando Otsu
+        if detect_board:
+            board_cnt = self._detect_background_board(image)
+            if board_cnt is not None:
+                # Dibujar el tablero detectado
+                cv2.drawContours(mask, [board_cnt], -1, 255, -1)
+                info['board_contour'] = board_cnt
+
+                # --- NUEVO: recortar a un rectángulo interior (zona naranja) ---
+                if self.board_inner_margin > 0:
+                    x, y, w_board, h_board = cv2.boundingRect(board_cnt)
+
+                    # coordenadas del rectángulo interior
+                    x_in = max(0, x + self.board_inner_margin)
+                    y_in = max(0, y + self.board_inner_margin)
+                    w_in = max(0, w_board - 2 * self.board_inner_margin)
+                    h_in = max(0, h_board - 2 * self.board_inner_margin)
+
+                    # máscara con solo el rectángulo interior
+                    inner_mask = np.zeros_like(mask)
+                    cv2.rectangle(inner_mask,
+                                  (x_in, y_in),
+                                  (x_in + w_in, y_in + h_in),
+                                  255, -1)
+
+                    # ROI final del tablero = intersección tablero ∩ rectángulo interior
+                    mask = cv2.bitwise_and(mask, inner_mask)
+
+                    info['inner_board_rect'] = (x_in, y_in, w_in, h_in)
+            else:
+                # Fallback
+                mask[:] = 255
+                if debug:
+                    print("WARN: No se detectó tablero, usando imagen completa")
+
+        # 2. Detectar y excluir ArUco markers
         if detect_aruco:
             aruco_markers = self._detect_aruco_markers(image)
             info['aruco_markers'] = aruco_markers
@@ -68,19 +113,17 @@ class ROIDetector:
                 cv2.fillPoly(mask, [expanded_corners], 0)
                 info['excluded_areas'] += 1
         
-        # Detectar y excluir caja de la izquierda
+        # 3. Detectar y excluir caja de la izquierda
         if detect_box:
             box_region = self._detect_left_box(image)
             if box_region is not None:
                 x, y, w_box, h_box = box_region
 
-                # --- desplazar un poco la zona de la caja hacia la derecha ---
-                # por ejemplo, mover un 10% del ancho de la caja
+                # Desplazar un poco la zona de la caja hacia la derecha
                 shift = int(w_box * 0.10)
                 x = min(x + shift, w - w_box)
-                w_box = w_box  # mantenemos el ancho original
 
-                # Guardar la caja para visualización (sin margen)
+                # Guardar la caja para visualización
                 info['box_region'] = (x, y, w_box, h_box)
 
                 # Aplicar margen alrededor de la caja
@@ -91,9 +134,56 @@ class ROIDetector:
 
                 mask[y_roi:y_roi + h_roi, x_roi:x_roi + w_roi] = 0
                 info['excluded_areas'] += 1
-
         
         return mask, info
+
+    def _detect_background_board(self, image: np.ndarray) -> Optional[np.ndarray]:
+        """
+        Detecta el tablero negro de fondo usando Otsu thresholding en el canal V (HSV),
+        y luego ajusta un rectángulo mínimo al contorno para evitar entrantes producidos
+        por objetos (botellas, etc.) que toquen el borde.
+        """
+        # Convertir a HSV
+        hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+        v_channel = hsv[:, :, 2]
+        
+        # Blur para reducir ruido
+        blurred = cv2.GaussianBlur(v_channel, (5, 5), 0)
+        
+        # Otsu: tablero negro => blanco en la binaria (INV)
+        _, binary = cv2.threshold(
+            blurred, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU
+        )
+        
+        # Limpieza morfológica
+        kernel = np.ones((7, 7), np.uint8)
+        binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel, iterations=3)
+        binary = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel, iterations=2)
+        
+        # Contornos externos
+        contours, _ = cv2.findContours(
+            binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+        )
+        if not contours:
+            return None
+
+        # Contorno más grande (tablero)
+        contours = sorted(contours, key=cv2.contourArea, reverse=True)
+        largest_cnt = contours[0]
+
+        # Comprobar área mínima (por ejemplo, 30% de la imagen)
+        total_area = image.shape[0] * image.shape[1]
+        if cv2.contourArea(largest_cnt) < total_area * 0.3:
+            return None
+
+        # --- Mejora clave: quitar entrantes usando convex hull + rectángulo mínimo ---
+        hull = cv2.convexHull(largest_cnt)          # elimina concavidades (botella, etc.)
+        rect = cv2.minAreaRect(hull)                # rectángulo mínimo que encierra el hull
+        box = cv2.boxPoints(rect)                   # 4 puntos del rectángulo
+        box = np.int32(box).reshape(-1, 1, 2)       # formato contorno (N,1,2) para drawContours
+        
+        return box
+
     
     def _detect_aruco_markers(self, image: np.ndarray) -> List[np.ndarray]:
         """
@@ -154,7 +244,6 @@ class ROIDetector:
         hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
         
         # Detectar píxeles con alta saturación (colores vivos de la caja)
-        # La caja tiene colores azul, rosa/rojo, amarillo
         mask_saturated = cv2.inRange(hsv[:, :, 1], 80, 255)
         
         # Operaciones morfológicas para limpiar
@@ -220,13 +309,13 @@ class ROIDetector:
         return np.array(expanded, dtype=np.int32)
     
     def visualize_roi(self, image: np.ndarray, mask: np.ndarray, 
-                     info: dict) -> np.ndarray:
+                      info: dict) -> np.ndarray:
         """
         Crea una visualización del ROI y áreas excluidas.
         
         Args:
             image: Imagen original
-            mask: Máscara ROI
+            mask: Máscara ROI (255 = válido, 0 = excluido)
             info: Información de detección
             
         Returns:
@@ -234,9 +323,14 @@ class ROIDetector:
         """
         vis = image.copy()
         
-        # Crear overlay semitransparente para áreas excluidas
+        # Crear overlay
         overlay = vis.copy()
-        overlay[mask == 0] = [0, 0, 255]  # Rojo para áreas excluidas
+        
+        # 1. Pintar zona válida (mask == 255) de VERDE
+        overlay[mask == 255] = [0, 255, 0]
+        
+        # 2. Pintar zona excluida (mask == 0) de ROJO
+        overlay[mask == 0] = [0, 0, 255]
         
         # Mezclar con transparencia
         alpha = 0.3
@@ -245,22 +339,31 @@ class ROIDetector:
         # Dibujar contornos de ArUco markers
         for corners in info['aruco_markers']:
             cv2.polylines(vis, [corners], True, (0, 255, 0), 2)
-            # Etiquetar
             center = np.mean(corners, axis=0).astype(int)
             cv2.putText(vis, "ArUco", tuple(center), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
         
         # Dibujar caja
         if info['box_region'] is not None:
-            x, y, w, h = info['box_region']
-            cv2.rectangle(vis, (x, y), (x+w, y+h), (255, 0, 0), 2)
-            cv2.putText(vis, "Box", (x, y-10), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
+            x, y, w_box, h_box = info['box_region']
+            cv2.rectangle(vis, (x, y), (x + w_box, y + h_box), (255, 0, 0), 2)
+            cv2.putText(vis, "Box", (x, y - 10), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
+        
+        # Dibujar contorno del tablero si existe
+        '''if info.get('board_contour') is not None:
+            cv2.drawContours(vis, [info['board_contour']], -1, (255, 255, 0), 2)'''
+
+        # Dibujar rectángulo interior (zona naranja deseada)
+        if info.get('inner_board_rect') is not None:
+            x_in, y_in, w_in, h_in = info['inner_board_rect']
+            cv2.rectangle(vis, (x_in, y_in), (x_in + w_in, y_in + h_in),
+                          (0, 140, 255), 3)  # naranja
         
         # Añadir texto informativo
         text = f"Excluded areas: {info['excluded_areas']}"
         cv2.putText(vis, text, (10, 30), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
         
         return vis
     
@@ -292,7 +395,6 @@ class ROIDetector:
             
             if cnt_area > 0:
                 overlap_ratio = overlap_area / cnt_area
-                
                 if overlap_ratio >= min_overlap:
                     valid_contours.append(cnt)
         

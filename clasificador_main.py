@@ -21,6 +21,7 @@ from feature_extractor import FeatureExtractor
 from roi_detector import ROIDetector
 from object_segmenter import ObjectSegmenter
 from waste_classifier import WasteClassifier
+from ml_waste_classifier import MLWasteClassifier
 
 
 class WasteClassificationSystem:
@@ -31,7 +32,8 @@ class WasteClassificationSystem:
                  roi_margin: int = 20,
                  confidence_threshold: float = 0.4,
                  detect_aruco: bool = True,
-                 detect_box: bool = True):
+                 detect_box: bool = True,
+                 use_ml: bool = False):
         """
         Args:
             min_area: Área mínima para detectar objetos
@@ -39,11 +41,18 @@ class WasteClassificationSystem:
             confidence_threshold: Umbral de confianza para clasificación
             detect_aruco: Si True, detecta y excluye ArUco markers
             detect_box: Si True, detecta y excluye caja de la izquierda
+            use_ml: Si True, usa el clasificador ML
         """
         self.feature_extractor = FeatureExtractor()
         self.roi_detector = ROIDetector(margin=roi_margin)
         self.segmenter = ObjectSegmenter(min_area=min_area)
-        self.classifier = WasteClassifier(confidence_threshold=confidence_threshold)
+        
+        if use_ml:
+            print("Usando Clasificador ML...")
+            self.classifier = MLWasteClassifier(confidence_threshold=confidence_threshold)
+        else:
+            print("Usando Clasificador por Reglas...")
+            self.classifier = WasteClassifier(confidence_threshold=confidence_threshold)
         
         self.detect_aruco = detect_aruco
         self.detect_box = detect_box
@@ -335,17 +344,20 @@ def main():
     parser.add_argument('--quiet', '-q', action='store_true',
                        help='Modo silencioso (menos output)')
     
+    
     # Opciones de configuración
     parser.add_argument('--min-area', type=int, default=1000,
                        help='Área mínima para detectar objetos (default: 1000)')
     parser.add_argument('--roi-margin', type=int, default=20,
                        help='Margen alrededor de áreas excluidas (default: 20)')
-    parser.add_argument('--confidence', type=float, default=0.4,
-                       help='Umbral de confianza (default: 0.4)')
+    parser.add_argument('--confidence', type=float, default=0.35,
+                       help='Umbral de confianza (default: 0.35)')
     parser.add_argument('--no-aruco', action='store_true',
                        help='No detectar marcadores ArUco')
     parser.add_argument('--no-box', action='store_true',
                        help='No detectar caja de la izquierda')
+    parser.add_argument('--ml', action='store_true',
+                       help='Usar clasificador ML (requiere haber ejecutado train_classifier.py)')
     
     args = parser.parse_args()
     
@@ -363,7 +375,8 @@ def main():
         roi_margin=args.roi_margin,
         confidence_threshold=args.confidence,
         detect_aruco=not args.no_aruco,
-        detect_box=not args.no_box
+        detect_box=not args.no_box,
+        use_ml=args.ml
     )
     
     # Procesar

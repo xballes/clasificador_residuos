@@ -61,7 +61,7 @@ class WasteClassifier:
 
         return best_class, confidence, scores
 
-        # ================================
+       # ================================
     # LATA
     # ================================
     def _score_can(self, f: Dict[str, float]) -> float:
@@ -71,28 +71,28 @@ class WasteClassifier:
         elong      = f.get("elongation_ratio", 1.0)
         aspect     = f.get("aspect_ratio", 1.0)
         edge_top   = f.get("edge_density_top", 0.0)
+        spec_top   = f.get("specular_ratio_top", 0.0)
 
         score = 0.0
 
-        # Metal (común a todas las latas)
-        if metallic > 0.50:
+        # 1) metal → base de lata
+        if metallic > 0.55:
             score += 2.0
         if is_met_col:
             score += 1.0
 
-        # Lata "disco" (Aquarius, disco amarillo…)
-        if circ > 0.55 and elong < 1.8:
-            score += 2.5
-
-        # Lata rectangular (Smints):
-        # metálica y alargada, pero NO demasiado
+        # 2) lata rectangular (Smints, Aquarius tumbada):
+        #    metálica y algo alargada pero NO exageradamente
         if 1.4 <= elong <= 2.4:
             score += 3.0
 
-        # Si está demasiado alargada, ya no parece lata
-        if elong > 2.4:
-            score -= 2.0
-        if elong > 3.5:
+        # 3) lata "disco" (Aquarius desde arriba):
+        #    muy circular, con tapa con bordes
+        if circ > 0.75 and edge_top > 0.08 and spec_top > 0.15:
+            score += 3.0
+
+        # 4) penalizar cosas demasiado largas → parecen botella tumbada
+        if elong > 2.6:
             score -= 3.0
 
         return score
@@ -110,23 +110,22 @@ class WasteClassifier:
 
         score = 0.0
 
-        # Botella tumbada: muy alargada
-        if elong > 2.4 or aspect > 2.4 or aspect < 1.0 / 2.4:
-            score += 6.0       # botella clarísima
+        # 1) botella tumbada: muy alargada
+        if elong > 2.6 or aspect > 2.6 or aspect < 1.0 / 2.6:
+            score += 6.0
         elif elong > 2.0 or aspect > 2.0 or aspect < 0.5:
-            score += 4.0       # bastante alargada
+            score += 3.0
 
-        # Botella de pie: cuadrada, spec_top bajo, pocos bordes arriba
+        # 2) botella de pie: casi cuadrada, brilla poco arriba y pocos bordes
         is_square = 0.70 <= aspect <= 1.30 and elong < 1.8
         if is_square and spec_top < 0.2 and edge_top < 0.06:
-            score += 4.0
+            score += 3.0
 
-        # Ligera preferencia por botellas poco metálicas
+        # 3) ligera preferencia por botellas menos metálicas
         if metallic < 0.6:
             score += 1.0
 
         return score
-
 
     # ================================
     # CARTON
@@ -138,28 +137,34 @@ class WasteClassifier:
         elong      = f.get("elongation_ratio", 1.0)
         aspect     = f.get("aspect_ratio", 1.0)
         spec_top   = f.get("specular_ratio_top", 0.0)
-        edge_top   = f.get("edge_density_top", 0.0)
 
         score = 0.0
 
         is_square = 0.70 <= aspect <= 1.30 and elong < 1.8
 
-        # Forma cuadrada (tus bricks verde/blanco)
+        # 1) forma cuadrada típica de brick
         if is_square:
-            score += 3.5
+            score += 3.0
 
-        # Cartones: parte superior muy brillante (spec_top alto)
-        if spec_top > 0.5:
-            score += 4.0
-        elif spec_top < 0.2:
-            # Muy poco brillo arriba → probablemente NO sea cartón
-            score -= 2.0
+            # Cartón visto de lado (como tu objeto 1 en esta foto):
+            # cuadrado, circ > 0.70, poca luz en la parte superior
+            if circ > 0.70 and spec_top < 0.10:
+                score += 2.0
 
-        # Si además es muy circular y metálico, es más probable que sea una lata
-        if circ > 0.85 and metallic > 0.6 and edge_top > 0.06:
+            # Cartón visto desde arriba: muchísima luz en la tapa
+            if spec_top > 0.6:
+                score += 3.0
+
+        # 2) si es muy circular y metálico, es más probable lata que cartón
+        if circ > 0.85 and metallic > 0.6:
             score -= 3.0
 
+        # 3) pequeña penalización si es claramente metálico y de color metálico
+        if metallic > 0.65 and is_met_col:
+            score -= 1.0
+
         return score
+
 
     # ------------------------------------------------------------------ #
     # Utilidades visualización

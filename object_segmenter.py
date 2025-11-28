@@ -101,22 +101,53 @@ class ObjectSegmenter:
         
         debug_info['combined_mask'] = binary
         
-        # Limpieza morfológica
-        binary = self._morphological_cleanup(binary)
+        # Limpieza morfológica suave
+        # Reducimos las iteraciones para evitar unir objetos cercanos
+        kernel = np.ones((3, 3), np.uint8)
+        binary = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel, iterations=1)
+        # Closing muy suave o nulo para no pegar objetos
+        binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel, iterations=1)
+        
         debug_info['cleaned_mask'] = binary
         
         # Aplicar ROI mask si se proporciona
         if roi_mask is not None:
             binary = cv2.bitwise_and(binary, roi_mask)
             debug_info['roi_applied'] = binary
+
+        # --- WATERSHED PARA SEPARAR OBJETOS ---
+        # 1. Sure background (dilatar)
+        sure_bg = cv2.dilate(binary, kernel, iterations=2)
         
-        # Operaciones morfológicas finales
-        kernel = np.ones((3, 3), np.uint8)
-        opening = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel, iterations=1)
-        debug_info['final_mask'] = opening
+        # 2. Sure foreground (distance transform)
+        dist_transform = cv2.distanceTransform(binary, cv2.DIST_L2, 5)
+        # Umbral para sure foreground: 0.4 * max_dist parece razonable para separar
+        ret, sure_fg = cv2.threshold(dist_transform, 0.4 * dist_transform.max(), 255, 0)
+        sure_fg = np.uint8(sure_fg)
         
-        # Encontrar contornos
-        contours, _ = cv2.findContours(opening, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        # 3. Unknown region
+        unknown = cv2.subtract(sure_bg, sure_fg)
+        
+        # 4. Marker labelling
+        ret, markers = cv2.connectedComponents(sure_fg)
+        markers = markers + 1
+        markers[unknown == 255] = 0
+        
+        # 5. Watershed
+        # Necesitamos imagen de 3 canales para watershed
+        img_for_watershed = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+        markers = cv2.watershed(img_for_watershed, markers)
+        
+        # 6. Crear máscara final basada en marcadores (excluyendo bordes -1 y fondo 1)
+        # Los objetos serán > 1
+        final_mask = np.zeros_like(binary)
+        final_mask[markers > 1] = 255
+        
+        debug_info['watershed_markers'] = (markers * 10).astype(np.uint8) # Visualización
+        debug_info['final_mask'] = final_mask
+        
+        # Encontrar contornos en la máscara final separada
+        contours, _ = cv2.findContours(final_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         
         # Filtrar por área mínima y máxima
         h, w = image.shape[:2]
@@ -155,17 +186,18 @@ class ObjectSegmenter:
                 std_value = np.std(obj_pixels[:, 2])
                 std_saturation = np.std(obj_pixels[:, 1])
                 
-                is_very_dark = mean_value < 70
-                is_very_uniform = std_value < 20
-                is_low_saturation = mean_saturation < 30
-                is_uniform_saturation = std_saturation < 15
+                # Criterios relajados
+                is_very_dark = mean_value < 60 # Antes 70
+                is_very_uniform = std_value < 15 # Antes 20
+                is_low_saturation = mean_saturation < 25 # Antes 30
+                is_uniform_saturation = std_saturation < 10 # Antes 15
                 
                 gray_obj = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
                 edges = cv2.Canny(gray_obj, 50, 150)
                 edge_pixels = np.sum((edges > 0) & (mask > 0))
                 total_pixels = np.sum(mask > 0)
                 edge_density = edge_pixels / total_pixels if total_pixels > 0 else 0
-                is_low_edge_density = edge_density < 0.05
+                is_low_edge_density = edge_density < 0.03 # Antes 0.05
                 
                 background_score = 0
                 if is_very_dark: background_score += 2
@@ -174,11 +206,24 @@ class ObjectSegmenter:
                 if is_uniform_saturation: background_score += 1
                 if is_low_edge_density: background_score += 1
                 
+                # SALVAGUARDA 1: Si tiene algún píxel con saturación alta, NO es fondo (es colorido)
+                max_saturation = np.max(obj_pixels[:, 1])
+                if max_saturation > 80:
+                    background_score = 0
+                    if debug: print(f"  Contorno {i}: Salvado por color (Max Sat: {max_saturation})")
+
+                # SALVAGUARDA 2: Si es muy brillante (promedio V alto), NO es fondo (el fondo es negro)
+                # El tapete negro tiene V bajo (< 60-70). Objetos blancos tienen V alto (> 100).
+                if mean_value > 90:
+                    background_score = 0
+                    if debug: print(f"  Contorno {i}: Salvado por brillo (Mean V: {mean_value:.1f})")
+
                 if debug:
                     print(f"  Contorno {i} (Area {area:.0f}): Score {background_score}")
                     # ... prints detallados ...
 
-                if background_score >= 3:
+                # Aumentamos el umbral de rechazo de 3 a 4 para ser más permisivos
+                if background_score >= 4:
                     if debug: print(f"  Contorno {i}: Rechazado por fondo (Score {background_score})")
                     continue
             
@@ -251,7 +296,8 @@ class ObjectSegmenter:
         
         # Dilatar para conectar bordes cercanos
         kernel = np.ones((3, 3), np.uint8)
-        edges_dilated = cv2.dilate(edges, kernel, iterations=2)
+        # Reducido de 2 a 1 para evitar unir objetos muy cercanos
+        edges_dilated = cv2.dilate(edges, kernel, iterations=1)
         
         return edges_dilated
 
@@ -397,4 +443,3 @@ class ObjectSegmenter:
             return vis
         
         return np.zeros((100, 100, 3), dtype=np.uint8)
-

@@ -12,6 +12,7 @@ Uso:
 
 import cv2
 import numpy as np
+import time
 import argparse
 import os
 from pathlib import Path
@@ -21,7 +22,9 @@ from feature_extractor import FeatureExtractor
 from roi_detector import ROIDetector
 from object_segmenter import ObjectSegmenter
 from waste_classifier import WasteClassifier
+from waste_classifier import WasteClassifier
 from ml_waste_classifier import MLWasteClassifier
+from stabilizer import WasteStabilizer
 
 
 class WasteClassificationSystem:
@@ -125,6 +128,20 @@ class WasteClassificationSystem:
             if verbose:
                 print(f"\n  Objeto #{i+1}:")
             
+            # === CALCULAR CENTRO DEL OBJETO (CENTROIDE) ===
+            M = cv2.moments(contour)
+            if M["m00"] != 0:
+                cx = int(M["m10"] / M["m00"])
+                cy = int(M["m01"] / M["m00"])
+            else:
+                # Fallback si el contorno es degenerado: usar centro del bounding box
+                x, y, w, h = cv2.boundingRect(contour)
+                cx = x + w // 2
+                cy = y + h // 2
+            
+            if verbose:
+                print(f"    Centro aproximado: ({cx}, {cy})")
+            
             # Extraer características
             features = self.feature_extractor.extract_features(image, contour)
             
@@ -138,7 +155,8 @@ class WasteClassificationSystem:
                 'features': features,
                 'class': class_name,
                 'confidence': confidence,
-                'scores': scores
+                'scores': scores,
+                'center': (cx, cy),  # coordenadas del centro del objeto
             }
             results.append(result)
             
@@ -206,7 +224,7 @@ class WasteClassificationSystem:
         }
     
     def _create_visualization(self, image: np.ndarray, results: List[dict]) -> np.ndarray:
-        """Crea visualización con bounding boxes y etiquetas."""
+        """Crea visualización con bounding boxes, etiquetas y centro de cada objeto."""
         vis = image.copy()
         
         for result in results:
@@ -224,6 +242,21 @@ class WasteClassificationSystem:
             # Bounding box
             x, y, w, h = cv2.boundingRect(contour)
             cv2.rectangle(vis, (x, y), (x+w, y+h), color, 2)
+            
+            # Obtener centro (si viene en results, si no, recalcular)
+            if 'center' in result:
+                cx, cy = result['center']
+            else:
+                M = cv2.moments(contour)
+                if M["m00"] != 0:
+                    cx = int(M["m10"] / M["m00"])
+                    cy = int(M["m01"] / M["m00"])
+                else:
+                    cx = x + w // 2
+                    cy = y + h // 2
+            
+            # Punto rojo en el centro (BGR: (0, 0, 255))
+            cv2.circle(vis, (cx, cy), 5, (0, 0, 255), -1)
             
             # Etiqueta
             label = f"#{obj_id} {class_name} ({confidence:.0%})"
@@ -319,7 +352,92 @@ class WasteClassificationSystem:
             'results': all_results
         }
 
+    def process_realtime(self, camera_id: int = 0):
+        """
+        Ejecuta la clasificación en tiempo real continua.
+        Detecta, segmenta y clasifica en cada frame.
+        """
+        cap = cv2.VideoCapture(camera_id)
+        if not cap.isOpened():
+            print(f"Error: No se pudo abrir la cámara {camera_id}")
+            return
 
+        print(f"\n{'='*60}")
+        print("INICIANDO MODO TIEMPO REAL (CONTINUO)")
+        print("  [q] - Salir")
+        print(f"{'='*60}\n")
+
+        # Inicializar estabilizador
+        stabilizer = WasteStabilizer(history_size=10, max_distance=50)
+
+        try:
+            while True:
+                # Leer frame de la cámara
+                ret, frame = cap.read()
+                if not ret:
+                    print("Error al leer frame de la cámara")
+                    break
+
+                # 1. Detectar ROI
+                roi_mask, roi_info = self.roi_detector.create_roi_mask(
+                    frame,
+                    detect_aruco=self.detect_aruco,
+                    detect_box=self.detect_box
+                )
+
+                # 2. Segmentar objetos
+                contours, seg_info = self.segmenter.segment_objects(
+                    frame,
+                    roi_mask=roi_mask,
+                    debug=False
+                )
+
+                # 3. Clasificar objetos detectados
+                results = []
+                for i, contour in enumerate(contours):
+                    # Calcular centro
+                    M = cv2.moments(contour)
+                    if M["m00"] != 0:
+                        cx = int(M["m10"] / M["m00"])
+                        cy = int(M["m01"] / M["m00"])
+                    else:
+                        x, y, w, h = cv2.boundingRect(contour)
+                        cx = x + w // 2
+                        cy = y + h // 2
+
+                    # Extraer características
+                    features = self.feature_extractor.extract_features(frame, contour)
+                    
+                    # Clasificar
+                    class_name, confidence, scores = self.classifier.classify(features)
+                    
+                    results.append({
+                        'id': i + 1,
+                        'contour': contour,
+                        'class': class_name,
+                        'confidence': confidence,
+                        'center': (cx, cy)
+                    })
+
+                # 4. Estabilizar resultados
+                stabilized_results = stabilizer.update(results)
+
+                # 5. Visualizar
+                # Primero dibujamos el ROI
+                vis_frame = self.roi_detector.visualize_roi(frame, roi_mask, roi_info)
+                
+                # Luego dibujamos los objetos detectados (usando resultados estabilizados)
+                final_vis = self._create_visualization(vis_frame, stabilized_results)
+
+                cv2.imshow('Clasificador de Residuos - Tiempo Real', final_vis)
+
+                # Control de teclado
+                if cv2.waitKey(1) & 0xFF == ord('q'):
+                    break
+        
+        finally:
+            cap.release()
+            cv2.destroyAllWindows()
 def main():
     """Función principal con interfaz de línea de comandos."""
     parser = argparse.ArgumentParser(
@@ -335,6 +453,10 @@ def main():
                        help='Procesar todas las imágenes en un directorio')
     parser.add_argument('--pattern', type=str, default='*.png',
                        help='Patrón de archivos para modo batch (default: *.png)')
+    parser.add_argument('--realtime', action='store_true',
+                       help='Ejecutar en modo tiempo real con webcam')
+    parser.add_argument('--camera', type=int, default=0,
+                       help='Índice de la cámara para modo tiempo real (default: 0)')
     
     # Opciones de visualización
     parser.add_argument('--show-roi', action='store_true',
@@ -362,8 +484,8 @@ def main():
     args = parser.parse_args()
     
     # Validar argumentos
-    if not args.input and not args.batch:
-        parser.error('Debe especificar --input o --batch')
+    if not args.input and not args.batch and not args.realtime:
+        parser.error('Debe especificar --input, --batch o --realtime')
     
     if args.input and not args.output:
         # Generar nombre de salida automático
@@ -380,7 +502,10 @@ def main():
     )
     
     # Procesar
-    if args.batch:
+    if args.realtime:
+        # Modo tiempo real
+        system.process_realtime(camera_id=args.camera)
+    elif args.batch:
         # Modo batch
         system.process_batch(
             args.batch,
@@ -391,7 +516,7 @@ def main():
         )
     else:
         # Modo single image
-        system.process_image(
+        result = system.process_image(
             args.input,
             args.output,
             show_roi=args.show_roi,
@@ -399,6 +524,11 @@ def main():
             verbose=not args.quiet
         )
 
+        # Ejemplo: imprimir centros detectados
+        if not args.quiet:
+            for obj in result['results']:
+                print(f"Objeto #{obj['id']} -> clase: {obj['class']}, centro: {obj['center']}")
+    
 
 if __name__ == '__main__':
     main()

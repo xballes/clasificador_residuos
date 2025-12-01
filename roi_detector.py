@@ -112,12 +112,25 @@ class ROIDetector:
                 expanded_corners = self._expand_polygon(corners, self.margin)
                 cv2.fillPoly(mask, [expanded_corners], 0)
                 info['excluded_areas'] += 1
+
+                # --- NUEVO: Excluir todo lo que esté a la DERECHA del ArUco ---
+                # Encontrar la coordenada X más a la derecha del marcador (incluyendo margen)
+                max_x = np.max(expanded_corners[:, 0])
+                
+                # Dibujar rectángulo negro desde max_x hasta el final de la imagen
+                if max_x < w:
+                    cv2.rectangle(mask, 
+                                 (max_x, 0), 
+                                 (w, h), 
+                                 0, -1)
+                    info['excluded_areas'] += 1
         
         # 3. Detectar y excluir caja de la izquierda
         if detect_box:
             box_region = self._detect_left_box(image)
             if box_region is not None:
                 x, y, w_box, h_box = box_region
+                info['box_region'] = box_region
 
                 # Desplazar un poco la zona de la caja hacia la derecha
                 shift = int(w_box * 0.10)
@@ -133,6 +146,17 @@ class ROIDetector:
                 h_roi = min(h - y_roi, h_box + 3 * self.margin)
 
                 mask[y_roi:y_roi + h_roi, x_roi:x_roi + w_roi] = 0
+
+                # Excluir toda la franja vertical donde está la caja (incluyendo arriba y abajo)
+                # para que el ROI no empiece hasta después de la caja.
+                exclusion_right_x = x + w_box + self.margin
+                
+                # Dibujar rectángulo negro desde el inicio (0,0) hasta (exclusion_right_x, height)
+                cv2.rectangle(mask, 
+                             (0, 0), 
+                             (exclusion_right_x, h), 
+                             0, -1)
+                
                 info['excluded_areas'] += 1
         
         return mask, info
@@ -171,12 +195,12 @@ class ROIDetector:
         contours = sorted(contours, key=cv2.contourArea, reverse=True)
         largest_cnt = contours[0]
 
-        # Comprobar área mínima (por ejemplo, 30% de la imagen)
+        # Comprobar área mínima (30% de la imagen)
         total_area = image.shape[0] * image.shape[1]
         if cv2.contourArea(largest_cnt) < total_area * 0.3:
             return None
 
-        # --- Mejora clave: quitar entrantes usando convex hull + rectángulo mínimo ---
+        # quitar entrantes usando convex hull + rectángulo mínimo ---
         hull = cv2.convexHull(largest_cnt)          # elimina concavidades (botella, etc.)
         rect = cv2.minAreaRect(hull)                # rectángulo mínimo que encierra el hull
         box = cv2.boxPoints(rect)                   # 4 puntos del rectángulo

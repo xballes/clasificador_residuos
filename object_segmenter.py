@@ -85,7 +85,7 @@ class ObjectSegmenter:
         binary = mask_colored.copy()
         
         # 2. Para objetos blancos/difíciles, usar intersección de bordes y adaptive
-        # Esto elimina el ruido de adaptive (que no tiene bordes) y bordes espurios
+        # Esto elimina el ruido de adaptive (que no tiene bordes)
         # Dilatar bordes para asegurar solapamiento
         kernel_dilate = np.ones((3, 3), np.uint8)
         edges_dilated = cv2.dilate(mask_edges, kernel_dilate, iterations=1)
@@ -101,7 +101,7 @@ class ObjectSegmenter:
         
         debug_info['combined_mask'] = binary
         
-        # Limpieza morfológica suave
+        # Limpieza morfológica
         # Reducimos las iteraciones para evitar unir objetos cercanos
         kernel = np.ones((3, 3), np.uint8)
         binary = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel, iterations=1)

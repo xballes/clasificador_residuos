@@ -214,7 +214,7 @@ class ObjectSegmenter:
 
                 # SALVAGUARDA 2: Si es muy brillante (promedio V alto), NO es fondo (el fondo es negro)
                 # El tapete negro tiene V bajo (< 60-70). Objetos blancos tienen V alto (> 100).
-                if mean_value > 90:
+                if mean_value > 80:
                     background_score = 0
                     if debug: print(f"  Contorno {i}: Salvado por brillo (Mean V: {mean_value:.1f})")
 
@@ -267,7 +267,7 @@ class ObjectSegmenter:
         
         # Estrategia 2: También detectar objetos metálicos (baja saturación pero alto brillo)
         mask_metallic = cv2.inRange(hsv[:, :, 1], 0, 50)  # Baja saturación
-        mask_bright = cv2.inRange(hsv[:, :, 2], 150, 255)  # Alto brillo
+        mask_bright = cv2.inRange(hsv[:, :, 2], 120, 255)  # Alto brillo
         mask_metal = cv2.bitwise_and(mask_metallic, mask_bright)
         
         # Estrategia 3: Detectar objetos blancos/claros (botellas blancas, cartón blanco)

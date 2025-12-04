@@ -468,8 +468,8 @@ def main():
     
     
     # Opciones de configuración
-    parser.add_argument('--min-area', type=int, default=1000,
-                       help='Área mínima para detectar objetos (default: 1000)')
+    parser.add_argument('--min-area', type=int, default=500,
+                       help='Área mínima para detectar objetos (default: 500)')
     parser.add_argument('--roi-margin', type=int, default=20,
                        help='Margen alrededor de áreas excluidas (default: 20)')
     parser.add_argument('--confidence', type=float, default=0.35,

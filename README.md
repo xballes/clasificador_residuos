@@ -1,53 +1,78 @@
-# Proyecto de Visión Artificial: Clasificación de Residuos
+# Clasificador de Residuos
 
-## Estructura del Proyecto
+Sistema de clasificación automática de residuos (latas, botellas, cartón) usando visión por computadora y machine learning.
 
-- **`fotografo.py`**: Script para capturar imágenes utilizando una cámara calibrada. Permite guardar imágenes originales y corregidas (undistort).
-- **`train_features.py`**: Entrena un modelo de clasificación (Random Forest) basado en características extraídas manualmente (color, forma, textura).
-    - Características: Estadísticas de color (HSV), Hu momentos, solidez, circularidad, densidad de bordes, etc.
-    - Incluye mejora de imágenes para baja iluminación y características de uniformidad de color.
-- **`predict_real.py`**: Script de inferencia.
-    - Carga el modelo entrenado (`feature_model.pkl`).
-    - Procesa imágenes de la carpeta `capturas/real`.
-    - Detecta objetos, extrae características y clasifica.
-    - Genera imágenes con las predicciones visualizadas en `output_real`.
-- **`capturas/`**: Directorio que contiene las imágenes de entrenamiento y prueba.
-    - `botella/`, `carton/`, `lata/`: Imágenes para entrenamiento.
-    - `real/`: Imágenes de prueba con múltiples objetos.
-  
-## Uso
-### 1. Captura de Imágenes (Opcional)
+## Ejemplos de Uso
 
-Si necesitas capturar nuevas imágenes para entrenamiento:
+### 1. Captura de Imágenes (No hace falta ejecutar)
 
 ```bash
 python fotografo.py
 ```
-- `s`: Guardar foto.
-- `q`: Salir.
 
-### 2. Entrenamiento del Modelo
+**Controles:** `s` para guardar foto, `q` para salir
 
-Para entrenar el modelo con las imágenes en `capturas/`:
+---
 
-```bash
-python train_features.py
-```
-Esto generará `feature_model.pkl` y `feature_scaler.pkl`.
-
-### 3. Predicción
-
-Para clasificar objetos en las imágenes de `capturas/real`:
+### 2. Clasificación Manual de Datos (No hace falta ejecutar, ya esta hecho)
 
 ```bash
-python predict_real.py
+python clean_data.py --source capturas_buenas/real --dest capturas_buenas
 ```
-Los resultados se guardarán en la carpeta `output_real`.
 
-## Metodología
+**Controles:** `L` (lata), `B` (botella), `C` (carton), `S` (skip), `Q` (quit)
 
-El sistema utiliza un enfoque híbrido:
-1.  **Preprocesamiento**: Corrección de distorsión de lente, ajuste de gamma para baja iluminación.
-2.  **Segmentación**: Umbralización adaptativa y operaciones morfológicas para aislar objetos.
-3.  **Extracción de Características**: Se calcula un vector de características para cada objeto (Color, Forma, Textura).
-4.  **Clasificación**: Un clasificador Random Forest predice la clase del objeto.
+---
+
+### 3. Entrenamiento del Modelo ML (No hace falta ejecutar, ya esta hecho)
+
+```bash
+python train_classifier.py --data_dir capturas_buenas --output_csv features_extracted.csv
+```
+
+---
+
+### 4. Clasificación de Residuos (Estos son los comandos buenos)
+
+#### Imagen Individual
+
+```bash
+python clasificador_main.py --input capturas_buenas/real/undist_1764003047.png --output debug_misclassification_v8.png --ml --show-debug --show-roi
+```
+
+#### Modo Batch
+
+```bash
+python clasificador_main.py --batch capturas_buenas/real --output results/batch_results --show-roi --show-debug --ml
+```
+
+#### Sin Machine Learning (clasificador por reglas) ( Esto era como estaba hecho antes, NO ejecutar)
+
+```bash
+python clasificador_main.py --input test.png --output result.png --show-roi --show-debug
+```
+
+#### Con parámetros personalizados
+
+```bash
+python clasificador_main.py --input test.png --output result.png --ml --min-area 800 --confidence 0.4 --roi-margin 30
+```
+
+---
+
+## Opciones Principales
+
+**Clasificador (`clasificador_main.py`):**
+- `--input`, `-i` : Imagen de entrada
+- `--output`, `-o` : Imagen de salida
+- `--batch`, `-b` : Carpeta de imágenes (modo batch)
+- `--ml` : Usar clasificador ML (requiere entrenamiento previo)
+- `--show-roi` : Guardar visualización del ROI
+- `--show-debug` : Guardar imágenes de debug
+- `--min-area <int>` : Área mínima de objetos (default: 1000)
+- `--confidence <float>` : Umbral de confianza (default: 0.35)
+- `--no-aruco` : No detectar marcadores ArUco
+- `--no-box` : No detectar caja de la izquierda
+- `--pattern <str>` : Patrón de archivos para batch (default: *.png)
+
+---

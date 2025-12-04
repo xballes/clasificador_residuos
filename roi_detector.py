@@ -80,10 +80,12 @@ class ROIDetector:
                     x, y, w_board, h_board = cv2.boundingRect(board_cnt)
 
                     # coordenadas del rectángulo interior
+                    # Margen inferior más pequeño para bajar la línea naranja
+                    bottom_margin = 10  # Reducido de 25 a 10
                     x_in = max(0, x + self.board_inner_margin)
                     y_in = max(0, y + self.board_inner_margin)
                     w_in = max(0, w_board - 2 * self.board_inner_margin)
-                    h_in = max(0, h_board - 2 * self.board_inner_margin)
+                    h_in = max(0, h_board - self.board_inner_margin - bottom_margin)
 
                     # máscara con solo el rectángulo interior
                     inner_mask = np.zeros_like(mask)
@@ -384,11 +386,7 @@ class ROIDetector:
             cv2.rectangle(vis, (x_in, y_in), (x_in + w_in, y_in + h_in),
                           (0, 140, 255), 3)  # naranja
         
-        # Añadir texto informativo
-        text = f"Excluded areas: {info['excluded_areas']}"
-        cv2.putText(vis, text, (10, 30), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-        
+
         return vis
     
     def filter_contours_by_roi(self, contours: List[np.ndarray], 

@@ -250,7 +250,7 @@ class ObjectSegmenter:
             return cv2.LUT(image, table)
         
         return image.copy()
-    
+        return mask
     def _color_segmentation(self, image: np.ndarray) -> np.ndarray:
         """
         Segmentación basada en color (objetos con saturación significativa).
@@ -264,6 +264,7 @@ class ObjectSegmenter:
         mask1 = cv2.inRange(hsv[:, :, 1], 40, 255)  # Saturación
         mask_value = cv2.inRange(hsv[:, :, 2], 80, 255)  # Valor (brillo)
         mask = cv2.bitwise_and(mask1, mask_value)
+        
         
         # Estrategia 2: También detectar objetos metálicos (baja saturación pero alto brillo)
         mask_metallic = cv2.inRange(hsv[:, :, 1], 0, 50)  # Baja saturación

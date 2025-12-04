@@ -36,7 +36,8 @@ class WasteClassificationSystem:
                  confidence_threshold: float = 0.4,
                  detect_aruco: bool = True,
                  detect_box: bool = True,
-                 use_ml: bool = False):
+                 use_ml: bool = False,
+                 filter_class: str = None):
         """
         Args:
             min_area: Área mínima para detectar objetos
@@ -45,6 +46,7 @@ class WasteClassificationSystem:
             detect_aruco: Si True, detecta y excluye ArUco markers
             detect_box: Si True, detecta y excluye caja de la izquierda
             use_ml: Si True, usa el clasificador ML
+            filter_class: Filtrar por tipo ('plastico', 'carton', 'lata', None=todos)
         """
         self.feature_extractor = FeatureExtractor()
         self.roi_detector = ROIDetector(margin=roi_margin)
@@ -59,6 +61,18 @@ class WasteClassificationSystem:
         
         self.detect_aruco = detect_aruco
         self.detect_box = detect_box
+        
+        # Mapeo de filtro de clase (normalizar a mayúsculas)
+        self.filter_class = filter_class
+        self.class_map = {
+            'plastico': 'BOTELLA',
+            'carton': 'CARTON', 
+            'lata': 'LATA'
+        }
+        self.filter_class_name = self.class_map.get(filter_class.lower()) if filter_class else None
+        
+        if self.filter_class_name:
+            print(f"Filtrando solo objetos de tipo: {self.filter_class_name}")
     
     def process_image(self, 
                      image_path: str,
@@ -147,6 +161,10 @@ class WasteClassificationSystem:
             
             # Clasificar
             class_name, confidence, scores = self.classifier.classify(features)
+            
+            # Filtrar por clase si está especificado
+            if self.filter_class_name and class_name != self.filter_class_name:
+                continue  # Saltar este objeto si no coincide con el filtro
             
             # Guardar resultado
             result = {
@@ -411,6 +429,10 @@ class WasteClassificationSystem:
                     # Clasificar
                     class_name, confidence, scores = self.classifier.classify(features)
                     
+                    # Filtrar por clase si está especificado
+                    if self.filter_class_name and class_name != self.filter_class_name:
+                        continue  # Saltar este objeto si no coincide con el filtro
+                    
                     results.append({
                         'id': i + 1,
                         'contour': contour,
@@ -480,6 +502,8 @@ def main():
                        help='No detectar caja de la izquierda')
     parser.add_argument('--ml', action='store_true',
                        help='Usar clasificador ML (requiere haber ejecutado train_classifier.py)')
+    parser.add_argument('--filter-class', type=str, choices=['plastico', 'carton', 'lata'],
+                       help='Filtrar por tipo de objeto: plastico, carton, lata')
     
     args = parser.parse_args()
     
@@ -498,7 +522,8 @@ def main():
         confidence_threshold=args.confidence,
         detect_aruco=not args.no_aruco,
         detect_box=not args.no_box,
-        use_ml=args.ml
+        use_ml=args.ml,
+        filter_class=args.filter_class
     )
     
     # Procesar

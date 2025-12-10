@@ -251,60 +251,73 @@ class ROIDetector:
     def _detect_left_box(self, image: np.ndarray) -> Optional[Tuple[int, int, int, int]]:
         """
         Detecta la caja de colores en el lado izquierdo de la imagen.
-        
+
         Estrategia:
-        1. Buscar en el lado izquierdo (hasta 30% del ancho)
-        2. Detectar objetos con colores saturados (la caja tiene colores vivos)
-        3. Filtrar por tamaño y posición
-        
+        1. Tomar un ROI del lado izquierdo (por ejemplo 40% del ancho).
+        2. Buscar píxeles con alta saturación (colores vivos de la caja).
+        3. Quedarse con todos los contornos suficientemente grandes.
+        4. Unir todos esos contornos en UN solo bounding box (min x, min y, max x, max y).
         Returns:
-            Tupla (x, y, w, h) del bounding box de la caja, o None si no se detecta
+            Tupla (x, y, w, h) del bounding box de la caja, o None si no se detecta.
         """
         h, w = image.shape[:2]
-        
-        # Región de interés: 30% izquierdo de la imagen
-        left_region_width = int(w * 0.3)
+
+        # Región de interés: 40% izquierdo de la imagen
+        left_region_width = int(w * 0.4)
         roi = image[:, :left_region_width].copy()
-        
+
         # Convertir a HSV para detección de colores
         hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
-        
+
         # Detectar píxeles con alta saturación (colores vivos de la caja)
-        mask_saturated = cv2.inRange(hsv[:, :, 1], 80, 255)
-        
+        # Ajusta estos umbrales si hace falta
+        s_channel = hsv[:, :, 1]
+        mask_saturated = cv2.inRange(s_channel, 70, 255)
+
         # Operaciones morfológicas para limpiar
         kernel = np.ones((5, 5), np.uint8)
         mask_saturated = cv2.morphologyEx(mask_saturated, cv2.MORPH_CLOSE, kernel, iterations=3)
         mask_saturated = cv2.morphologyEx(mask_saturated, cv2.MORPH_OPEN, kernel, iterations=2)
-        
+
         # Encontrar contornos
         contours, _ = cv2.findContours(mask_saturated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        
         if not contours:
             return None
-        
-        # Buscar el contorno más grande en la izquierda
-        min_area = (h * w) * 0.02  # Al menos 2% del área total
-        max_area = (h * w) * 0.25  # Máximo 25% del área total
-        
-        best_box = None
-        best_area = 0
-        
+
+        # Filtrar contornos por área y unirlos en un solo bounding box
+        min_area = (h * w) * 0.005   # al menos 0.5% del área total
+        xs, ys, xes, yes = [], [], [], []
+
         for cnt in contours:
             area = cv2.contourArea(cnt)
-            
-            # Filtrar por área
-            if area < min_area or area > max_area:
+            if area < min_area:
                 continue
-            
+
             x, y, w_box, h_box = cv2.boundingRect(cnt)
-            
-            # Debe estar en el lado izquierdo (x pequeño)
-            if x < left_region_width * 0.5 and area > best_area:
-                best_area = area
-                best_box = (x, y, w_box, h_box)
-        
-        return best_box
+
+            # solo consideramos cosas claramente en el lado izquierdo
+            if x + w_box > left_region_width:
+                continue
+
+            xs.append(x)
+            ys.append(y)
+            xes.append(x + w_box)
+            yes.append(y + h_box)
+
+        if not xs:
+            return None
+
+        # Bounding box combinado de todos los fragmentos de la caja
+        x_min = min(xs)
+        y_min = min(ys)
+        x_max = max(xes)
+        y_max = max(yes)
+
+        w_box = x_max - x_min
+        h_box = y_max - y_min
+
+        return (x_min, y_min, w_box, h_box)
+
     
     def _expand_polygon(self, points: np.ndarray, margin: int) -> np.ndarray:
         """

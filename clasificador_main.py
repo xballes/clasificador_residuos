@@ -22,9 +22,10 @@ from feature_extractor import FeatureExtractor
 from roi_detector import ROIDetector
 from object_segmenter import ObjectSegmenter
 from waste_classifier import WasteClassifier
-from waste_classifier import WasteClassifier
 from ml_waste_classifier import MLWasteClassifier
 from stabilizer import WasteStabilizer
+from camera_calibration import CameraCalibration
+
 
 
 class WasteClassificationSystem:
@@ -37,7 +38,8 @@ class WasteClassificationSystem:
                  detect_aruco: bool = True,
                  detect_box: bool = True,
                  use_ml: bool = False,
-                 filter_class: str = None):
+                 filter_class: str = None,
+                 calibration_file: str = None):
         """
         Args:
             min_area: Área mínima para detectar objetos
@@ -51,6 +53,22 @@ class WasteClassificationSystem:
         self.feature_extractor = FeatureExtractor()
         self.roi_detector = ROIDetector(margin=roi_margin)
         self.segmenter = ObjectSegmenter(min_area=min_area)
+
+        self.calibration = None
+        if calibration_file is not None:
+            ext = os.path.splitext(calibration_file)[1].lower()
+            try:
+                if ext in ['.yaml', '.yml']:
+                    self.calibration = CameraCalibration.from_yaml(calibration_file)
+                elif ext == '.txt':
+                    self.calibration = CameraCalibration.from_ost_txt(calibration_file)
+                else:
+                    print(f"Extensión de calibración no reconocida: {ext}")
+                if self.calibration is not None:
+                    print(f"Calibración de cámara cargada desde: {calibration_file}")
+            except Exception as e:
+                print(f"Error al cargar calibración ({calibration_file}): {e}")
+                self.calibration = None
         
         if use_ml:
             print("Usando Clasificador ML...")
@@ -97,6 +115,9 @@ class WasteClassificationSystem:
         image = cv2.imread(image_path)
         if image is None:
             raise ValueError(f"No se pudo cargar la imagen: {image_path}")
+        
+        image = self._maybe_undistort(image)
+
         
         if verbose:
             print(f"\n{'='*60}")
@@ -348,10 +369,10 @@ class WasteClassificationSystem:
                     cls = obj_result['class']
                     class_totals[cls] = class_totals.get(cls, 0) + 1
                 
-                print(f"  ✓ Objetos detectados: {result['num_objects']}")
+                print(f"Objetos detectados: {result['num_objects']}")
                 
             except Exception as e:
-                print(f"  ✗ Error: {e}")
+                print(f"Error: {e}")
         
         # Resumen final
         print(f"\n{'='*60}")
@@ -395,6 +416,8 @@ class WasteClassificationSystem:
                 if not ret:
                     print("Error al leer frame de la cámara")
                     break
+
+                frame = self._maybe_undistort(frame)
 
                 # 1. Detectar ROI
                 roi_mask, roi_info = self.roi_detector.create_roi_mask(
@@ -451,6 +474,9 @@ class WasteClassificationSystem:
                 # Luego dibujamos los objetos detectados (usando resultados estabilizados)
                 final_vis = self._create_visualization(vis_frame, stabilized_results)
 
+                cv2.namedWindow('Clasificador de Residuos - Tiempo Real', cv2.WINDOW_NORMAL)
+                cv2.resizeWindow('Clasificador de Residuos - Tiempo Real', 1920, 1080)
+
                 cv2.imshow('Clasificador de Residuos - Tiempo Real', final_vis)
 
                 # Control de teclado
@@ -490,6 +516,9 @@ class WasteClassificationSystem:
                 if not ret:
                     print("Error al leer frame de la cámara")
                     return None
+                
+                frame = self._maybe_undistort(frame)
+
                 
                 # Calcular tiempo restante
                 elapsed = time.time() - start_time
@@ -538,6 +567,9 @@ class WasteClassificationSystem:
             
             # Procesar la captura
             print("Procesando captura...")
+
+            frame = self._maybe_undistort(frame)
+
             
             # 1. Detectar ROI
             roi_mask, roi_info = self.roi_detector.create_roi_mask(
@@ -609,6 +641,15 @@ class WasteClassificationSystem:
         finally:
             cap.release()
             cv2.destroyAllWindows()
+
+    def _maybe_undistort(self, image: np.ndarray) -> np.ndarray:
+        """
+        Si hay calibración cargada, devuelve la imagen undistort,
+        si no, devuelve la imagen original.
+        """
+        if self.calibration is None:
+            return image
+        return self.calibration.undistort(image)
 def main():
     """Función principal con interfaz de línea de comandos."""
     parser = argparse.ArgumentParser(
@@ -658,6 +699,10 @@ def main():
     parser.add_argument('--filter-class', type=str, choices=['plastico', 'carton', 'lata'],
                        help='Filtrar por tipo de objeto: plastico, carton, lata')
     
+    parser.add_argument('--calib', type=str,
+                       help='Fichero de calibración de cámara (ost.yaml u ost.txt)')
+
+
     args = parser.parse_args()
     
     # Validar argumentos
@@ -676,7 +721,8 @@ def main():
         detect_aruco=not args.no_aruco,
         detect_box=not args.no_box,
         use_ml=args.ml,
-        filter_class=args.filter_class
+        filter_class=args.filter_class,
+        calibration_file=args.calib
     )
     
     # Procesar
@@ -711,7 +757,7 @@ def main():
         if not args.quiet:
             for obj in result['results']:
                 print(f"Objeto #{obj['id']} -> clase: {obj['class']}, centro: {obj['center']}")
-    
+                
 
 if __name__ == '__main__':
     main()

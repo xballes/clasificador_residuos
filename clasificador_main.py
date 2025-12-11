@@ -396,7 +396,7 @@ class WasteClassificationSystem:
         Ejecuta la clasificación en tiempo real continua.
         Detecta, segmenta y clasifica en cada frame.
         """
-        cap = cv2.VideoCapture(camera_id)
+        cap = cv2.VideoCapture(camera_id, cv2.CAP_DSHOW)
         if not cap.isOpened():
             print(f"Error: No se pudo abrir la cámara {camera_id}")
             return
@@ -404,6 +404,11 @@ class WasteClassificationSystem:
         # Configurar resolución a 1920x1080
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
+        
+        # Verificar resolución real
+        actual_w = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
+        actual_h = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
+        print(f"Resolución de cámara configurada: {int(actual_w)}x{int(actual_h)}")
 
         print(f"\n{'='*60}")
         print("INICIANDO MODO TIEMPO REAL (CONTINUO)")
@@ -489,109 +494,64 @@ class WasteClassificationSystem:
             cap.release()
             cv2.destroyAllWindows()
     
-    def process_capture(self, camera_id: int = 0, countdown: int = 3):
-        """
-        Captura una imagen después de una cuenta atrás y devuelve las coordenadas de los objetos.
-        
-        Args:
-            camera_id: Índice de la cámara
-            countdown: Segundos de cuenta atrás antes de capturar
-        """
-        cap = cv2.VideoCapture(camera_id)
-        if not cap.isOpened():
-            print(f"Error: No se pudo abrir la cámara {camera_id}")
-            return None
-
-        # Configurar resolución a 1920x1080
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
-
-        print(f"\n{'='*60}")
-        print("MODO CAPTURA CON CUENTA ATRÁS")
-        print(f"  Cuenta atrás: {countdown} segundos")
-        print("  [ESC] - Cancelar")
-        print(f"{'='*60}\n")
-
-        try:
-            # Mostrar preview con cuenta atrás
-            import time
-            start_time = time.time()
+    def process_capture(self, camera_id: int = 0):
+            cap = None
+            print(f"Intentando abrir cámara {camera_id}...")
+            for backend in (cv2.CAP_ANY, cv2.CAP_DSHOW, cv2.CAP_MSMF):
+                temp_cap = cv2.VideoCapture(camera_id, backend)
+                temp_cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
+                temp_cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
+                if temp_cap.isOpened():
+                    cap = temp_cap
+                    break
             
-            while True:
+            if cap is None:
+                cap = cv2.VideoCapture(camera_id)
+
+            if not cap.isOpened():
+                print(f"Error: No se pudo abrir la cámara {camera_id}")
+                return None
+
+            frame = None
+            try:
+                print(f"Estabilizando sensor cámara {camera_id}...")
+                for _ in range(20):
+                    cap.read()
+                    time.sleep(0.01)
+                
                 ret, frame = cap.read()
+                
                 if not ret:
                     print("Error al leer frame de la cámara")
                     return None
                 
-                frame = self._maybe_undistort(frame)
+                print("¡Foto capturada correctamente!")
 
-                
-                # Calcular tiempo restante
-                elapsed = time.time() - start_time
-                remaining = max(0, countdown - int(elapsed))
-                
-                # Crear visualización con ROI
-                roi_mask, roi_info = self.roi_detector.create_roi_mask(
-                    frame,
-                    detect_aruco=self.detect_aruco,
-                    detect_box=self.detect_box
-                )
-                vis_frame = self.roi_detector.visualize_roi(frame, roi_mask, roi_info)
-                
-                # Dibujar cuenta atrás
-                if remaining > 0:
-                    text = f"Capturando en: {remaining}"
-                    font_scale = 2.0
-                    thickness = 4
-                    (text_w, text_h), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, thickness)
-                    
-                    # Centrar texto
-                    x = (vis_frame.shape[1] - text_w) // 2
-                    y = (vis_frame.shape[0] + text_h) // 2
-                    
-                    # Fondo semi-transparente
-                    overlay = vis_frame.copy()
-                    cv2.rectangle(overlay, (x-20, y-text_h-20), (x+text_w+20, y+20), (0, 0, 0), -1)
-                    cv2.addWeighted(overlay, 0.7, vis_frame, 0.3, 0, vis_frame)
-                    
-                    # Texto en amarillo
-                    cv2.putText(vis_frame, text, (x, y),
-                               cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0, 255, 255), thickness)
-                else:
-                    # Capturar!
-                    print("\n¡CAPTURA!\n")
-                    break
-                
-                cv2.imshow('Captura - Cuenta Atrás', vis_frame)
-                
-                # Permitir cancelar con ESC
-                if cv2.waitKey(100) & 0xFF == 27:  # ESC
-                    print("\nCaptura cancelada por el usuario")
-                    cap.release()
-                    cv2.destroyAllWindows()
-                    return None
-            
-            # Procesar la captura
+            finally:
+                # Liberar cámara inmediatamente (lógica de "sacar foto y cerrar")
+                cap.release()
+                cv2.destroyAllWindows()
+
+            # --- 2. LÓGICA DE PROCESAMIENTO (ORIGINAL) ---
             print("Procesando captura...")
 
-            frame = self._maybe_undistort(frame)
-
+            frame = frame
             
-            # 1. Detectar ROI
+            # Detectar ROI
             roi_mask, roi_info = self.roi_detector.create_roi_mask(
                 frame,
                 detect_aruco=self.detect_aruco,
                 detect_box=self.detect_box
             )
             
-            # 2. Segmentar objetos
+            # Segmentar objetos
             contours, seg_info = self.segmenter.segment_objects(
                 frame,
                 roi_mask=roi_mask,
                 debug=False
             )
             
-            # 3. Clasificar y obtener coordenadas
+            # Clasificar y obtener coordenadas
             results = []
             for i, contour in enumerate(contours):
                 # Calcular centro
@@ -622,7 +582,7 @@ class WasteClassificationSystem:
                     'contour': contour
                 })
             
-            # Mostrar resultados
+            # Mostrar resultados en consola
             print(f"\n{'='*60}")
             print(f"OBJETOS DETECTADOS: {len(results)}")
             print(f"{'='*60}")
@@ -638,20 +598,17 @@ class WasteClassificationSystem:
             
             # Crear visualización final
             vis_final = self._create_visualization(frame, results)
+            
+            filename = "imagenprocesada.png"
+            cv2.imwrite(filename, vis_final)
+            print(f"Captura procesada guardada en: {filename}")
+            
             cv2.imshow('Captura - Resultado', vis_final)
-            os.makedirs("captures", exist_ok=True)
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            result_path = f"captures/capture_result_{timestamp}.jpg"
-            cv2.imwrite(result_path, vis_final)
-            print(f"Captura procesada guardada en: {result_path}")
-            print("Presiona cualquier tecla para cerrar...")
+            print("Presiona cualquier tecla para continuar...")
             cv2.waitKey(0)
+            cv2.destroyAllWindows()
             
             return results
-            
-        finally:
-            cap.release()
-            cv2.destroyAllWindows()
 
     def _maybe_undistort(self, image: np.ndarray) -> np.ndarray:
         """
@@ -739,7 +696,7 @@ def main():
     # Procesar
     if args.capture:
         # Modo captura con cuenta atrás
-        results = system.process_capture(camera_id=args.camera, countdown=args.countdown)
+        results = system.process_capture(camera_id=args.camera)
         if results:
             print("\nCaptura completada exitosamente")
     elif args.realtime:

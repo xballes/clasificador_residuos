@@ -426,7 +426,7 @@ class WasteClassificationSystem:
                     print("Error al leer frame de la cámara")
                     break
 
-                frame = self._maybe_undistort(frame)
+                #frame = self._maybe_undistort(frame)
 
                 # 1. Detectar ROI
                 roi_mask, roi_info = self.roi_detector.create_roi_mask(
@@ -534,8 +534,6 @@ class WasteClassificationSystem:
 
             # --- 2. LÓGICA DE PROCESAMIENTO (ORIGINAL) ---
             print("Procesando captura...")
-
-            frame = frame
             
             # Detectar ROI
             roi_mask, roi_info = self.roi_detector.create_roi_mask(

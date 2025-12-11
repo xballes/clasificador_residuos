@@ -17,7 +17,7 @@ import argparse
 import os
 from pathlib import Path
 from typing import List, Tuple
-
+from datetime import datetime
 from feature_extractor import FeatureExtractor
 from roi_detector import ROIDetector
 from object_segmenter import ObjectSegmenter
@@ -401,6 +401,10 @@ class WasteClassificationSystem:
             print(f"Error: No se pudo abrir la cámara {camera_id}")
             return
 
+        # Configurar resolución a 1920x1080
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
+
         print(f"\n{'='*60}")
         print("INICIANDO MODO TIEMPO REAL (CONTINUO)")
         print("  [q] - Salir")
@@ -475,8 +479,6 @@ class WasteClassificationSystem:
                 final_vis = self._create_visualization(vis_frame, stabilized_results)
 
                 cv2.namedWindow('Clasificador de Residuos - Tiempo Real', cv2.WINDOW_NORMAL)
-                cv2.resizeWindow('Clasificador de Residuos - Tiempo Real', 1920, 1080)
-
                 cv2.imshow('Clasificador de Residuos - Tiempo Real', final_vis)
 
                 # Control de teclado
@@ -499,6 +501,10 @@ class WasteClassificationSystem:
         if not cap.isOpened():
             print(f"Error: No se pudo abrir la cámara {camera_id}")
             return None
+
+        # Configurar resolución a 1920x1080
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
 
         print(f"\n{'='*60}")
         print("MODO CAPTURA CON CUENTA ATRÁS")
@@ -633,6 +639,11 @@ class WasteClassificationSystem:
             # Crear visualización final
             vis_final = self._create_visualization(frame, results)
             cv2.imshow('Captura - Resultado', vis_final)
+            os.makedirs("captures", exist_ok=True)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            result_path = f"captures/capture_result_{timestamp}.jpg"
+            cv2.imwrite(result_path, vis_final)
+            print(f"Captura procesada guardada en: {result_path}")
             print("Presiona cualquier tecla para cerrar...")
             cv2.waitKey(0)
             

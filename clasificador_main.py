@@ -91,6 +91,40 @@ class WasteClassificationSystem:
         
         if self.filter_class_name:
             print(f"Filtrando solo objetos de tipo: {self.filter_class_name}")
+
+    def _adapt_calibration(self, target_w: int, target_h: int):
+        """
+        Adapta la matriz de calibración (K) a una nueva resolución.
+        Útil si calibramos en 640x480 pero capturamos en 1920x1080.
+        """
+        if self.calibration is None:
+            return
+
+        current_w, current_h = self.calibration.image_size
+        
+        # Si ya coincide, no hacer nada
+        if current_w == target_w and current_h == target_h:
+            return
+
+        print(f"Adaptando calibración de {current_w}x{current_h} a {target_w}x{target_h}...")
+        
+        sx = target_w / current_w
+        sy = target_h / current_h
+        
+        # Escalar matriz K
+        # K = [[fx, 0, cx], [0, fy, cy], [0, 0, 1]]
+        self.calibration.K[0, 0] *= sx # fx
+        self.calibration.K[0, 2] *= sx # cx
+        self.calibration.K[1, 1] *= sy # fy
+        self.calibration.K[1, 2] *= sy # cy
+        
+        # Actualizar tamaño en objeto calibración
+        self.calibration.image_size = (target_w, target_h)
+        
+        # Forzar recalculo de mapas
+        self.calibration.map1 = None
+        self.calibration.map2 = None
+        print("Calibración adaptada correctamente.")
     
     def process_image(self, 
                      image_path: str,
@@ -407,13 +441,19 @@ class WasteClassificationSystem:
             return
 
         # Configurar resolución a 1920x1080
-        #cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
-        #cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
+        # Configurar resolución a 1920x1080
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
         
-        # Verificar resolución real
         actual_w = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
         actual_h = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
         print(f"Resolución de cámara configurada: {int(actual_w)}x{int(actual_h)}")
+
+        # Adaptar calibración si es necesario
+        self._adapt_calibration(1920, 1080)
+
+        # Adaptar calibración si es necesario
+        self._adapt_calibration(1920, 1080)
 
         print(f"\n{'='*60}")
         print("INICIANDO MODO TIEMPO REAL (CONTINUO)")
@@ -509,8 +549,8 @@ class WasteClassificationSystem:
             print(f"Intentando abrir cámara {camera_id}...")
             for backend in (cv2.CAP_ANY, cv2.CAP_DSHOW, cv2.CAP_MSMF):
                 temp_cap = cv2.VideoCapture(camera_id, backend)
-                #temp_cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
-                #temp_cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
+                temp_cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
+                temp_cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
                 if temp_cap.isOpened():
                     cap = temp_cap
                     break
@@ -521,6 +561,18 @@ class WasteClassificationSystem:
             if not cap.isOpened():
                 print(f"Error: No se pudo abrir la cámara {camera_id}")
                 return None
+            
+            # Verificar resolución real obtenida
+            actual_w = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
+            actual_h = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
+            print(f"Resolución de captura obtenida: {int(actual_w)}x{int(actual_h)}")
+            
+            if int(actual_w) != 1920 or int(actual_h) != 1080:
+                print("ADVERTENCIA: La cámara no está capturando en 1920x1080 nativo.")
+                print("La imagen será reescalada, pero la calidad puede verse afectada.")
+
+            # Adaptar calibración si es necesario
+            self._adapt_calibration(1920, 1080)
 
             frame = None
             try:

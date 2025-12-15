@@ -116,7 +116,12 @@ class WasteClassificationSystem:
         if image is None:
             raise ValueError(f"No se pudo cargar la imagen: {image_path}")
         
+        # 0. Calibrar y Escalar
+        # Primero quitamos distorsión (si hay calibración)
         image = self._maybe_undistort(image)
+        
+        # Luego escalamos a 1920x1080
+        #image = cv2.resize(image, (1920, 1080))
 
         
         if verbose:
@@ -402,8 +407,8 @@ class WasteClassificationSystem:
             return
 
         # Configurar resolución a 1920x1080
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
+        #cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
+        #cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
         
         # Verificar resolución real
         actual_w = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
@@ -426,7 +431,12 @@ class WasteClassificationSystem:
                     print("Error al leer frame de la cámara")
                     break
 
-                #frame = self._maybe_undistort(frame)
+                # 0. Calibrar y Escalar
+                # Primero quitamos distorsión
+                frame = self._maybe_undistort(frame)
+                
+                # Luego aseguramos 1920x1080
+                #frame = cv2.resize(frame, (1920, 1080))
 
                 # 1. Detectar ROI
                 roi_mask, roi_info = self.roi_detector.create_roi_mask(
@@ -499,8 +509,8 @@ class WasteClassificationSystem:
             print(f"Intentando abrir cámara {camera_id}...")
             for backend in (cv2.CAP_ANY, cv2.CAP_DSHOW, cv2.CAP_MSMF):
                 temp_cap = cv2.VideoCapture(camera_id, backend)
-                temp_cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
-                temp_cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
+                #temp_cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
+                #temp_cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
                 if temp_cap.isOpened():
                     cap = temp_cap
                     break
@@ -532,8 +542,15 @@ class WasteClassificationSystem:
                 cap.release()
                 cv2.destroyAllWindows()
 
-            # --- 2. LÓGICA DE PROCESAMIENTO (ORIGINAL) ---
+            # --- 2. LÓGICA DE PROCESAMIENTO ---
             print("Procesando captura...")
+            
+            # 0. Calibrar y Escalar
+            # Primero quitamos distorsión
+            frame = self._maybe_undistort(frame)
+            
+            # Luego aseguramos 1920x1080
+            #frame = cv2.resize(frame, (1920, 1080))
             
             # Detectar ROI
             roi_mask, roi_info = self.roi_detector.create_roi_mask(

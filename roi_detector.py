@@ -126,6 +126,25 @@ class ROIDetector:
                                  (w, h), 
                                  0, -1)
                     info['excluded_areas'] += 1
+
+            # --- NUEVO: Excluir arriba y abajo de los ArUcos ---
+            if len(aruco_markers) > 0:
+                # Recopilar todos los puntos de todos los marcadores
+                all_points = np.vstack(aruco_markers).reshape(-1, 2)
+                
+                # Encontrar límites verticales
+                min_y = np.min(all_points[:, 1])
+                max_y = np.max(all_points[:, 1])
+                
+                # Excluir zona SUPERIOR (desde 0 hasta min_y)
+                if min_y > 0:
+                    cv2.rectangle(mask, (0, 0), (w, int(min_y)), 0, -1)
+                    info['excluded_areas'] += 1
+                    
+                # Excluir zona INFERIOR (desde max_y hasta h)
+                if max_y < h:
+                    cv2.rectangle(mask, (0, int(max_y)), (w, h), 0, -1)
+                    info['excluded_areas'] += 1
         
         # 3. Detectar y excluir caja de la izquierda
         if detect_box:

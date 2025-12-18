@@ -435,7 +435,7 @@ class WasteClassificationSystem:
             'results': all_results
         }
 
-    def process_realtime(self, camera_id: int = 0):
+    def process_realtime(self, camera_id: int = 0, record: bool = False):
         """
         Ejecuta la clasificación en tiempo real continua.
         Detecta, segmenta y clasifica en cada frame.
@@ -474,10 +474,23 @@ class WasteClassificationSystem:
         print(f"\n{'='*60}")
         print("INICIANDO MODO TIEMPO REAL (CONTINUO)")
         print("  [q] - Salir")
+        if record:
+            print("  [GRABANDO VIDEO]")
         print(f"{'='*60}\n")
 
         # Inicializar estabilizador
         stabilizer = WasteStabilizer(history_size=10, max_distance=50)
+        
+        # Inicializar grabador de video
+        video_writer = None
+        if record:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            video_filename = f"video_realtime_{timestamp}.avi"
+            # Usar MJPG para compatibilidad
+            fourcc = cv2.VideoWriter_fourcc(*'MJPG')
+            # Asumimos 30 fps, ajustar si es necesario
+            video_writer = cv2.VideoWriter(video_filename, fourcc, 30.0, (int(actual_w), int(actual_h)))
+            print(f"Grabando video en: {video_filename}")
 
         try:
             while True:
@@ -549,6 +562,10 @@ class WasteClassificationSystem:
                 # Luego dibujamos los objetos detectados (usando resultados estabilizados)
                 final_vis = self._create_visualization(vis_frame, stabilized_results)
 
+                # Grabar frame si está activado
+                if video_writer is not None:
+                    video_writer.write(final_vis)
+
                 cv2.namedWindow('Clasificador de Residuos - Tiempo Real', cv2.WINDOW_NORMAL)
                 cv2.imshow('Clasificador de Residuos - Tiempo Real', final_vis)
 
@@ -558,6 +575,9 @@ class WasteClassificationSystem:
         
         finally:
             cap.release()
+            if video_writer is not None:
+                video_writer.release()
+                print("Video guardado y cerrado.")
             cv2.destroyAllWindows()
     
     def process_capture(self, camera_id: int = 0):
@@ -726,6 +746,8 @@ def main():
                        help='Segundos de cuenta atrás antes de capturar (default: 3)')
     parser.add_argument('--camera', type=int, default=0,
                        help='Índice de la cámara para modo tiempo real/captura (default: 0)')
+    parser.add_argument('--record', action='store_true',
+                       help='Grabar video de la sesión en tiempo real')
     
     # Opciones de visualización
     parser.add_argument('--show-roi', action='store_true',
@@ -786,7 +808,7 @@ def main():
             print("\nCaptura completada exitosamente")
     elif args.realtime:
         # Modo tiempo real
-        system.process_realtime(camera_id=args.camera)
+        system.process_realtime(camera_id=args.camera, record=args.record)
     elif args.batch:
         # Modo batch
         system.process_batch(

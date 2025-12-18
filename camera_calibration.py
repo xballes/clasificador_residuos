@@ -2,6 +2,7 @@
 import numpy as np
 import yaml
 import cv2
+import pickle
 
 class CameraCalibration:
     def __init__(self, K, D, image_size=None):
@@ -53,6 +54,27 @@ class CameraCalibration:
             raise ValueError("No se encontraron K o D en el ost.txt")
         return cls(K, D)
 
+    @classmethod
+    def from_pickle(cls, path):
+        """
+        Carga calibración desde un archivo .pkl (diccionario con 'camera_matrix' y 'dist_coeff').
+        """
+        with open(path, 'rb') as f:
+            data = pickle.load(f)
+        
+        K = data.get("camera_matrix")
+        D = data.get("dist_coeff")
+        
+        if K is None or D is None:
+            raise ValueError("El archivo pickle debe contener 'camera_matrix' y 'dist_coeff'")
+            
+        # Intentar inferir tamaño si está guardado, si no, dejar None
+        w = data.get('image_width', None)
+        h = data.get('image_height', None)
+        image_size = (w, h) if (w is not None and h is not None) else None
+        
+        return cls(K, D, image_size=image_size)
+
     def init_undistort_maps(self, image_shape):
         """
         Precalcula los mapas de remapeo para tiempo real.
@@ -74,4 +96,3 @@ class CameraCalibration:
         if self.map1 is None or self.map2 is None or self.image_size != (img.shape[1], img.shape[0]):
             self.init_undistort_maps(img.shape)
         return cv2.remap(img, self.map1, self.map2, interpolation=cv2.INTER_LINEAR)
- 

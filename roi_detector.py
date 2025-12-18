@@ -11,7 +11,7 @@ class ROIDetector:
     - Excluyendo marcadores ArUco
     """
     
-    def __init__(self, margin: int = 20, board_inner_margin: int = 25):
+    def __init__(self, margin: int = 10, board_inner_margin: int = 10):
         """
         Args:
             margin: Margen adicional alrededor de áreas excluidas (píxeles)
@@ -153,9 +153,9 @@ class ROIDetector:
                 x, y, w_box, h_box = box_region
                 info['box_region'] = box_region
 
-                # Desplazar un poco la zona de la caja hacia la derecha
-                shift = int(w_box * 0.10)
-                x = min(x + shift, w - w_box)
+                # Desplazar un poco la zona de la caja hacia la izquierda
+                shift = int(w_box * 0.05)
+                x = max(0, x - shift)
 
                 # Guardar la caja para visualización
                 info['box_region'] = (x, y, w_box, h_box)

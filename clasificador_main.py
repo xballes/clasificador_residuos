@@ -33,7 +33,7 @@ class WasteClassificationSystem:
     
     def __init__(self, 
                  min_area: int = 1000,
-                 roi_margin: int = 20,
+                 roi_margin: int = 10,
                  confidence_threshold: float = 0.4,
                  detect_aruco: bool = True,
                  detect_box: bool = True,
@@ -62,6 +62,8 @@ class WasteClassificationSystem:
                     self.calibration = CameraCalibration.from_yaml(calibration_file)
                 elif ext == '.txt':
                     self.calibration = CameraCalibration.from_ost_txt(calibration_file)
+                elif ext == '.pkl':
+                    self.calibration = CameraCalibration.from_pickle(calibration_file)
                 else:
                     print(f"Extensión de calibración no reconocida: {ext}")
                 if self.calibration is not None:
@@ -95,7 +97,7 @@ class WasteClassificationSystem:
     def _adapt_calibration(self, target_w: int, target_h: int):
         """
         Adapta la matriz de calibración (K) a una nueva resolución.
-        Útil si calibramos en 640x480 pero capturamos en 1280x960.
+        Útil si calibramos en 640x480 pero capturamos en 1280x720.
         """
         if self.calibration is None:
             return
@@ -157,8 +159,8 @@ class WasteClassificationSystem:
         # Primero quitamos distorsión (si hay calibración)
         image = self._maybe_undistort(image)
         
-        # Luego escalamos a 1280x960
-        #image = cv2.resize(image, (1280, 960))
+        # Luego escalamos a 1280x720
+        #image = cv2.resize(image, (1280, 720))
 
         
         if verbose:
@@ -444,8 +446,8 @@ class WasteClassificationSystem:
         # Intentar diferentes backends como en process_capture
         for backend in (cv2.CAP_ANY, cv2.CAP_DSHOW, cv2.CAP_MSMF):
             temp_cap = cv2.VideoCapture(camera_id, backend)
-            #temp_cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
-            #temp_cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 960)
+            temp_cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+            temp_cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
             if temp_cap.isOpened():
                 cap = temp_cap
                 break
@@ -462,12 +464,12 @@ class WasteClassificationSystem:
         actual_h = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
         print(f"Resolución de cámara configurada: {int(actual_w)}x{int(actual_h)}")
 
-        '''if int(actual_w) != 1280 or int(actual_h) != 960:
-            print("ADVERTENCIA: La cámara no está capturando en 1280x960 nativo.")
+        '''if int(actual_w) != 1280 or int(actual_h) != 720:
+            print("ADVERTENCIA: La cámara no está capturando en 1280x720 nativo.")
             print("La imagen será reescalada/procesada a esta resolución.")'''
 
         # Adaptar calibración a la resolución REAL
-        self._adapt_calibration(int(actual_w), int(actual_h))
+        #self._adapt_calibration(int(actual_w), int(actual_h))
 
         print(f"\n{'='*60}")
         print("INICIANDO MODO TIEMPO REAL (CONTINUO)")
@@ -489,8 +491,8 @@ class WasteClassificationSystem:
                 # Primero quitamos distorsión
                 frame = self._maybe_undistort(frame)
                 
-                # Luego aseguramos 1280x960
-                #frame = cv2.resize(frame, (1280, 960))
+                # Luego aseguramos 1280x720
+                #frame = cv2.resize(frame, (1280, 720))
 
                 # 1. Detectar ROI
                 roi_mask, roi_info = self.roi_detector.create_roi_mask(
@@ -563,8 +565,8 @@ class WasteClassificationSystem:
             print(f"Intentando abrir cámara {camera_id}...")
             for backend in (cv2.CAP_ANY, cv2.CAP_DSHOW, cv2.CAP_MSMF):
                 temp_cap = cv2.VideoCapture(camera_id, backend)
-                #temp_cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280) #1280×960
-                #temp_cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 960)
+                temp_cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280) #1280×720
+                temp_cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
                 if temp_cap.isOpened():
                     cap = temp_cap
                     break
@@ -581,13 +583,13 @@ class WasteClassificationSystem:
             actual_h = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
             print(f"Resolución de captura obtenida: {int(actual_w)}x{int(actual_h)}")
             
-            '''if int(actual_w) != 1280 or int(actual_h) != 960: #1280×960
-                print("ADVERTENCIA: La cámara no está capturando en 1280x960 nativo.")
+            '''if int(actual_w) != 1280 or int(actual_h) != 720: #1280×720
+                print("ADVERTENCIA: La cámara no está capturando en 1280x720 nativo.")
                 print("La imagen será reescalada, pero la calidad puede verse afectada.")'''
 
             # Adaptar calibración si es necesario
-            #self._adapt_calibration(1280, 960)
-            self._adapt_calibration(int(actual_w), int(actual_h))
+            #self._adapt_calibration(1280, 720)
+            #self._adapt_calibration(int(actual_w), int(actual_h))
 
 
             frame = None
@@ -617,8 +619,8 @@ class WasteClassificationSystem:
             # Primero quitamos distorsión
             frame = self._maybe_undistort(frame)
             
-            # Luego aseguramos 1280x960
-            #frame = cv2.resize(frame, (1280, 960))
+            # Luego aseguramos 1280x720
+            #frame = cv2.resize(frame, (1280, 720))
             
             # Detectar ROI
             roi_mask, roi_info = self.roi_detector.create_roi_mask(
@@ -737,8 +739,8 @@ def main():
     # Opciones de configuración
     parser.add_argument('--min-area', type=int, default=500,
                        help='Área mínima para detectar objetos (default: 500)')
-    parser.add_argument('--roi-margin', type=int, default=20,
-                       help='Margen alrededor de áreas excluidas (default: 20)')
+    parser.add_argument('--roi-margin', type=int, default=10,
+                       help='Margen alrededor de áreas excluidas (default: 10)')
     parser.add_argument('--confidence', type=float, default=0.35,
                        help='Umbral de confianza (default: 0.35)')
     parser.add_argument('--no-aruco', action='store_true',
@@ -751,7 +753,7 @@ def main():
                        help='Filtrar por tipo de objeto: plastico, carton, lata')
     
     parser.add_argument('--calib', type=str,
-                       help='Fichero de calibración de cámara (ost.yaml u ost.txt)')
+                       help='Fichero de calibración de cámara (ost.yaml, ost.txt o calibracion_camara.pkl)')
 
 
     args = parser.parse_args()

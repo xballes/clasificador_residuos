@@ -95,7 +95,7 @@ class WasteClassificationSystem:
     def _adapt_calibration(self, target_w: int, target_h: int):
         """
         Adapta la matriz de calibración (K) a una nueva resolución.
-        Útil si calibramos en 640x480 pero capturamos en 1920x1080.
+        Útil si calibramos en 640x480 pero capturamos en 1280x960.
         """
         if self.calibration is None:
             return
@@ -108,15 +108,18 @@ class WasteClassificationSystem:
 
         print(f"Adaptando calibración de {current_w}x{current_h} a {target_w}x{target_h}...")
         
-        sx = target_w / current_w
-        sy = target_h / current_h
+        # ASUNCIÓN: La cámara mantiene el FOV horizontal y recorta verticalmente para 16:9.
+        # Por tanto, usamos el factor de escala horizontal para ambos ejes (pixels cuadrados).
+        scale = target_w / current_w
         
         # Escalar matriz K
         # K = [[fx, 0, cx], [0, fy, cy], [0, 0, 1]]
-        self.calibration.K[0, 0] *= sx # fx
-        self.calibration.K[0, 2] *= sx # cx
-        self.calibration.K[1, 1] *= sy # fy
-        self.calibration.K[1, 2] *= sy # cy
+        self.calibration.K[0, 0] *= scale # fx
+        self.calibration.K[1, 1] *= scale # fy
+        
+        # Recentrar punto principal
+        self.calibration.K[0, 2] = target_w / 2.0 # cx
+        self.calibration.K[1, 2] = target_h / 2.0 # cy
         
         # Actualizar tamaño en objeto calibración
         self.calibration.image_size = (target_w, target_h)
@@ -124,7 +127,7 @@ class WasteClassificationSystem:
         # Forzar recalculo de mapas
         self.calibration.map1 = None
         self.calibration.map2 = None
-        print("Calibración adaptada correctamente.")
+        print(f"Calibración adaptada (scale={scale:.2f}).")
     
     def process_image(self, 
                      image_path: str,
@@ -154,8 +157,8 @@ class WasteClassificationSystem:
         # Primero quitamos distorsión (si hay calibración)
         image = self._maybe_undistort(image)
         
-        # Luego escalamos a 1920x1080
-        #image = cv2.resize(image, (1920, 1080))
+        # Luego escalamos a 1280x960
+        #image = cv2.resize(image, (1280, 960))
 
         
         if verbose:
@@ -435,25 +438,36 @@ class WasteClassificationSystem:
         Ejecuta la clasificación en tiempo real continua.
         Detecta, segmenta y clasifica en cada frame.
         """
-        cap = cv2.VideoCapture(camera_id, cv2.CAP_DSHOW)
+        cap = None
+        print(f"Intentando abrir cámara {camera_id} para tiempo real...")
+        
+        # Intentar diferentes backends como en process_capture
+        for backend in (cv2.CAP_ANY, cv2.CAP_DSHOW, cv2.CAP_MSMF):
+            temp_cap = cv2.VideoCapture(camera_id, backend)
+            #temp_cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+            #temp_cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 960)
+            if temp_cap.isOpened():
+                cap = temp_cap
+                break
+        
+        if cap is None:
+            cap = cv2.VideoCapture(camera_id)
+
         if not cap.isOpened():
             print(f"Error: No se pudo abrir la cámara {camera_id}")
             return
 
-        # Configurar resolución a 1920x1080
-        # Configurar resolución a 1920x1080
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
-        
+        # Verificar resolución real obtenida
         actual_w = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
         actual_h = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
         print(f"Resolución de cámara configurada: {int(actual_w)}x{int(actual_h)}")
 
-        # Adaptar calibración si es necesario
-        self._adapt_calibration(1920, 1080)
+        '''if int(actual_w) != 1280 or int(actual_h) != 960:
+            print("ADVERTENCIA: La cámara no está capturando en 1280x960 nativo.")
+            print("La imagen será reescalada/procesada a esta resolución.")'''
 
-        # Adaptar calibración si es necesario
-        self._adapt_calibration(1920, 1080)
+        # Adaptar calibración a la resolución REAL
+        self._adapt_calibration(int(actual_w), int(actual_h))
 
         print(f"\n{'='*60}")
         print("INICIANDO MODO TIEMPO REAL (CONTINUO)")
@@ -475,8 +489,8 @@ class WasteClassificationSystem:
                 # Primero quitamos distorsión
                 frame = self._maybe_undistort(frame)
                 
-                # Luego aseguramos 1920x1080
-                #frame = cv2.resize(frame, (1920, 1080))
+                # Luego aseguramos 1280x960
+                #frame = cv2.resize(frame, (1280, 960))
 
                 # 1. Detectar ROI
                 roi_mask, roi_info = self.roi_detector.create_roi_mask(
@@ -549,8 +563,8 @@ class WasteClassificationSystem:
             print(f"Intentando abrir cámara {camera_id}...")
             for backend in (cv2.CAP_ANY, cv2.CAP_DSHOW, cv2.CAP_MSMF):
                 temp_cap = cv2.VideoCapture(camera_id, backend)
-                temp_cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
-                temp_cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
+                #temp_cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280) #1280×960
+                #temp_cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 960)
                 if temp_cap.isOpened():
                     cap = temp_cap
                     break
@@ -567,12 +581,14 @@ class WasteClassificationSystem:
             actual_h = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
             print(f"Resolución de captura obtenida: {int(actual_w)}x{int(actual_h)}")
             
-            if int(actual_w) != 1920 or int(actual_h) != 1080:
-                print("ADVERTENCIA: La cámara no está capturando en 1920x1080 nativo.")
-                print("La imagen será reescalada, pero la calidad puede verse afectada.")
+            '''if int(actual_w) != 1280 or int(actual_h) != 960: #1280×960
+                print("ADVERTENCIA: La cámara no está capturando en 1280x960 nativo.")
+                print("La imagen será reescalada, pero la calidad puede verse afectada.")'''
 
             # Adaptar calibración si es necesario
-            self._adapt_calibration(1920, 1080)
+            #self._adapt_calibration(1280, 960)
+            self._adapt_calibration(int(actual_w), int(actual_h))
+
 
             frame = None
             try:
@@ -601,8 +617,8 @@ class WasteClassificationSystem:
             # Primero quitamos distorsión
             frame = self._maybe_undistort(frame)
             
-            # Luego aseguramos 1920x1080
-            #frame = cv2.resize(frame, (1920, 1080))
+            # Luego aseguramos 1280x960
+            #frame = cv2.resize(frame, (1280, 960))
             
             # Detectar ROI
             roi_mask, roi_info = self.roi_detector.create_roi_mask(

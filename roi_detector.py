@@ -149,7 +149,8 @@ class ROIDetector:
         
         # 3. Detectar y excluir caja de la izquierda
         if detect_box:
-            box_region = self._detect_left_box(image)
+            #box_region = self._detect_left_box(image)
+            box_region = None # Desactivado por petición del usuario
             if box_region is not None:
                 x, y, w_box, h_box = box_region
                 info['box_region'] = box_region
@@ -282,8 +283,8 @@ class ROIDetector:
         """
         h, w = image.shape[:2]
 
-        # Región de interés: 40% izquierdo de la imagen
-        left_region_width = int(w * 0.4)
+        # Región de interés: 10% izquierdo de la imagen
+        left_region_width = int(w * 0.10)
         roi = image[:, :left_region_width].copy()
 
         # Convertir a HSV para detección de colores

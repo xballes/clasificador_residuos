@@ -11,7 +11,7 @@ class ROIDetector:
     - Excluyendo marcadores ArUco
     """
     
-    def __init__(self, margin: int = 10, board_inner_margin: int = 10):
+    def __init__(self, margin: int = 10, board_inner_margin: int = 0):
         """
         Args:
             margin: Margen adicional alrededor de áreas excluidas (píxeles)
@@ -76,28 +76,29 @@ class ROIDetector:
                 info['board_contour'] = board_cnt
 
                 # --- NUEVO: recortar a un rectángulo interior (zona naranja) ---
-                if self.board_inner_margin > 0:
-                    x, y, w_board, h_board = cv2.boundingRect(board_cnt)
+                # --- NUEVO: recortar a un rectángulo interior (zona naranja) ---
+                # Siempre calculamos esto para visualizar el ROI
+                x, y, w_board, h_board = cv2.boundingRect(board_cnt)
 
-                    # coordenadas del rectángulo interior
-                    # Margen inferior más pequeño para bajar la línea naranja
-                    bottom_margin = 10  # Reducido de 25 a 10
-                    x_in = max(0, x + self.board_inner_margin)
-                    y_in = max(0, y + self.board_inner_margin)
-                    w_in = max(0, w_board - 2 * self.board_inner_margin)
-                    h_in = max(0, h_board - self.board_inner_margin - bottom_margin)
+                # coordenadas del rectángulo interior
+                # Usamos el mismo margen para todos los lados
+                bottom_margin = self.board_inner_margin 
+                x_in = max(0, x + self.board_inner_margin)
+                y_in = max(0, y + self.board_inner_margin)
+                w_in = max(0, w_board - 2 * self.board_inner_margin)
+                h_in = max(0, h_board - self.board_inner_margin - bottom_margin)
 
-                    # máscara con solo el rectángulo interior
-                    inner_mask = np.zeros_like(mask)
-                    cv2.rectangle(inner_mask,
-                                  (x_in, y_in),
-                                  (x_in + w_in, y_in + h_in),
-                                  255, -1)
+                # máscara con solo el rectángulo interior
+                inner_mask = np.zeros_like(mask)
+                cv2.rectangle(inner_mask,
+                              (x_in, y_in),
+                              (x_in + w_in, y_in + h_in),
+                              255, -1)
 
-                    # ROI final del tablero = intersección tablero ∩ rectángulo interior
-                    mask = cv2.bitwise_and(mask, inner_mask)
+                # ROI final del tablero = intersección tablero ∩ rectángulo interior
+                mask = cv2.bitwise_and(mask, inner_mask)
 
-                    info['inner_board_rect'] = (x_in, y_in, w_in, h_in)
+                info['inner_board_rect'] = (x_in, y_in, w_in, h_in)
             else:
                 # Fallback
                 mask[:] = 255

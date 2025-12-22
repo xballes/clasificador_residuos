@@ -39,6 +39,7 @@ class WasteClassificationSystem:
                  detect_box: bool = True,
                  use_ml: bool = False,
                  filter_class: str = None,
+                 board_margin: int = 0,
                  calibration_file: str = None):
         """
         Args:
@@ -51,7 +52,7 @@ class WasteClassificationSystem:
             filter_class: Filtrar por tipo ('plastico', 'carton', 'lata', None=todos)
         """
         self.feature_extractor = FeatureExtractor()
-        self.roi_detector = ROIDetector(margin=roi_margin)
+        self.roi_detector = ROIDetector(margin=roi_margin, board_inner_margin=board_margin)
         self.segmenter = ObjectSegmenter(min_area=min_area)
 
         self.calibration = None
@@ -763,6 +764,8 @@ def main():
                        help='Área mínima para detectar objetos (default: 500)')
     parser.add_argument('--roi-margin', type=int, default=10,
                        help='Margen alrededor de áreas excluidas (default: 10)')
+    parser.add_argument('--board-margin', type=int, default=0,
+                       help='Margen interior del tablero negro (default: 0)')
     parser.add_argument('--confidence', type=float, default=0.35,
                        help='Umbral de confianza (default: 0.35)')
     parser.add_argument('--no-aruco', action='store_true',
@@ -797,6 +800,7 @@ def main():
         detect_box=not args.no_box,
         use_ml=args.ml,
         filter_class=args.filter_class,
+        board_margin=args.board_margin,
         calibration_file=args.calib
     )
     

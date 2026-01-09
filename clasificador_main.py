@@ -96,10 +96,6 @@ class WasteClassificationSystem:
             print(f"Filtrando solo objetos de tipo: {self.filter_class_name}")
 
     def _adapt_calibration(self, target_w: int, target_h: int):
-        """
-        Adapta la matriz de calibración (K) a una nueva resolución.
-        Útil si calibramos en 640x480 pero capturamos en 1280x720.
-        """
         if self.calibration is None:
             return
 
@@ -111,12 +107,8 @@ class WasteClassificationSystem:
 
         print(f"Adaptando calibración de {current_w}x{current_h} a {target_w}x{target_h}...")
         
-        # ASUNCIÓN: La cámara mantiene el FOV horizontal y recorta verticalmente para 16:9.
-        # Por tanto, usamos el factor de escala horizontal para ambos ejes (pixels cuadrados).
         scale = target_w / current_w
         
-        # Escalar matriz K
-        # K = [[fx, 0, cx], [0, fy, cy], [0, 0, 1]]
         self.calibration.K[0, 0] *= scale # fx
         self.calibration.K[1, 1] *= scale # fy
         
@@ -163,7 +155,6 @@ class WasteClassificationSystem:
         # Luego escalamos a 1280x720
         #image = cv2.resize(image, (1280, 720))
 
-        
         if verbose:
             print(f"\n{'='*60}")
             print(f"Procesando: {image_path}")
@@ -487,9 +478,7 @@ class WasteClassificationSystem:
         if record:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             video_filename = f"video_realtime_{timestamp}.avi"
-            # Usar MJPG para compatibilidad
             fourcc = cv2.VideoWriter_fourcc(*'MJPG')
-            # Asumimos 30 fps, ajustar si es necesario
             video_writer = cv2.VideoWriter(video_filename, fourcc, 30.0, (int(actual_w), int(actual_h)))
             print(f"Grabando video en: {video_filename}")
 

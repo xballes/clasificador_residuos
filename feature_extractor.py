@@ -34,23 +34,18 @@ class FeatureExtractor:
             mask = np.zeros(image.shape[:2], dtype=np.uint8)
             cv2.drawContours(mask, [contour], -1, 255, -1)
 
-        # === FEATURES PARA CLASIFICADOR POR REGLAS (ya existentes) ===
         features.update(self._extract_shape_features(contour))
         features.update(self._extract_color_features(image, contour, mask))
         features.update(self._extract_metallic_features(image, contour, mask))
         features.update(self._extract_texture_features(image, contour, mask))
 
-        # === NUEVO: FEATURES TIPO train_features.py (para RandomForest) ===
         ml_feats, ml_vec = self._extract_ml_features(image, contour, mask)
         features.update(ml_feats)
-        # Guardamos el vector en el mismo orden que en el entrenamiento
+
         features["ml_feature_vector"] = ml_vec
 
         return features
 
-    # ------------------------------------------------------------------
-    # FEATURES ORIGINALES (REGLAS)
-    # ------------------------------------------------------------------
     def _extract_shape_features(self, contour: np.ndarray) -> Dict[str, float]:
         """Extrae características de forma del contorno."""
         features = {}
@@ -172,9 +167,8 @@ class FeatureExtractor:
                             (15 <= mean_hsv[0] <= 45 and mean_hsv[1] > 100)
         features['is_metallic_color'] = 1.0 if is_metallic_color else 0.0
 
-        # Modificado: Detectar plástico blanco o transparente
-        # Antes exigía V < 100, lo que excluía botellas blancas.
-        # Ahora buscamos baja saturación en general.
+        # Detectar plástico blanco o transparente
+        # Buscamos baja saturación en general.
         is_transparent = mean_hsv[1] < 60 
         features['is_transparent_color'] = 1.0 if is_transparent else 0.0
 
@@ -304,8 +298,8 @@ class FeatureExtractor:
             else:
                 features['edge_density_body'] = 0.0
 
-            # === NUEVO: densidad de bordes del tapón (banda muy superior) ===
-            cap_h = max(1, int(h * 0.15))         # 15% de la altura: zona del tapón
+            # Densidad de bordes del tapón (banda muy superior)
+            cap_h = max(1, int(h * 0.15))
             cap_edges = internal_edges[y:y + cap_h, x:x + w]
             cap_pixels = cap_edges.size
 
@@ -328,9 +322,6 @@ class FeatureExtractor:
 
         return features
 
-    # ------------------------------------------------------------------
-    # NUEVO: FEATURES TIPO train_features.py
-    # ------------------------------------------------------------------
     def _extract_ml_features(self,
                              image: np.ndarray,
                              contour: np.ndarray,
@@ -400,7 +391,6 @@ class FeatureExtractor:
         ml['ml_rectangularity'] = rectangularity
 
         # 2. Color features (Mean Sin/Cos Hue, CircVar, stats de S y V)
-        #    Reescalamos a 160x160 y la máscara igual (como en el script)
         img_resized = cv2.resize(img_proc, (160, 160))
         mask_resized = cv2.resize(mask, (160, 160), interpolation=cv2.INTER_NEAREST)
 
@@ -504,9 +494,6 @@ class FeatureExtractor:
         z = (arr - mean) / std
         return float(np.mean(z ** 3))
 
-    # ------------------------------------------------------------------
-    # (opcional) método para imprimir como antes
-    # ------------------------------------------------------------------
     def print_features(self, features: Dict[str, float], indent: int = 0):
         """Imprime las características de forma legible."""
         prefix = "  " * indent

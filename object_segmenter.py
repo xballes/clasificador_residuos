@@ -9,7 +9,6 @@ class ObjectSegmenter:
     - Segmentación por color
     - Detección de bordes
     - Umbral adaptativo
-    Basado en test_new_segmentation.py pero mejorado y modularizado.
     """
     
     def __init__(self, 
@@ -65,7 +64,6 @@ class ObjectSegmenter:
         mask_adaptive = self._adaptive_threshold(gray)
         debug_info['adaptive_mask'] = mask_adaptive
         
-        # SALVAGUARDA: Verificar si las máscaras auxiliares cubren demasiada área (fondo detectado)
         total_pixels = image.shape[0] * image.shape[1]
         
         # Verificar mask_edges
@@ -80,13 +78,10 @@ class ObjectSegmenter:
             if debug: print(f"WARN: Adaptive mask descartada (Área {adaptive_area/total_pixels:.1%})")
             mask_adaptive = np.zeros_like(mask_adaptive)
         
-        # Combinar estrategias de forma inteligente
         # 1. La máscara de color es la más fiable para latas y objetos con color
         binary = mask_colored.copy()
         
         # 2. Para objetos blancos/difíciles, usar intersección de bordes y adaptive
-        # Esto elimina el ruido de adaptive (que no tiene bordes)
-        # Dilatar bordes para asegurar solapamiento
         kernel_dilate = np.ones((3, 3), np.uint8)
         edges_dilated = cv2.dilate(mask_edges, kernel_dilate, iterations=1)
         
@@ -102,7 +97,6 @@ class ObjectSegmenter:
         debug_info['combined_mask'] = binary
         
         # Limpieza morfológica
-        # Reducimos las iteraciones para evitar unir objetos cercanos
         kernel = np.ones((3, 3), np.uint8)
         binary = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel, iterations=1)
         # Closing muy suave o nulo para no pegar objetos
@@ -116,12 +110,9 @@ class ObjectSegmenter:
             debug_info['roi_applied'] = binary
 
         # --- WATERSHED PARA SEPARAR OBJETOS ---
-        # 1. Sure background (dilatar)
         sure_bg = cv2.dilate(binary, kernel, iterations=2)
         
-        # 2. Sure foreground (distance transform)
         dist_transform = cv2.distanceTransform(binary, cv2.DIST_L2, 5)
-        # Umbral para sure foreground: 0.4 * max_dist parece razonable para separar
         ret, sure_fg = cv2.threshold(dist_transform, 0.4 * dist_transform.max(), 255, 0)
         sure_fg = np.uint8(sure_fg)
         
@@ -134,12 +125,10 @@ class ObjectSegmenter:
         markers[unknown == 255] = 0
         
         # 5. Watershed
-        # Necesitamos imagen de 3 canales para watershed
         img_for_watershed = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
         markers = cv2.watershed(img_for_watershed, markers)
         
         # 6. Crear máscara final basada en marcadores (excluyendo bordes -1 y fondo 1)
-        # Los objetos serán > 1
         final_mask = np.zeros_like(binary)
         final_mask[markers > 1] = 255
         
@@ -173,7 +162,6 @@ class ObjectSegmenter:
                 continue
             
             # Filtrar objetos que son claramente fondo oscuro
-            # ... (código de filtrado de fondo igual) ...
             mask = np.zeros(image.shape[:2], dtype=np.uint8)
             cv2.drawContours(mask, [cnt], -1, 255, -1)
             
@@ -206,13 +194,13 @@ class ObjectSegmenter:
                 if is_uniform_saturation: background_score += 1
                 if is_low_edge_density: background_score += 1
                 
-                # SALVAGUARDA 1: Si tiene algún píxel con saturación alta, NO es fondo (es colorido)
+                # Si tiene algún píxel con saturación alta, NO es fondo (es colorido)
                 max_saturation = np.max(obj_pixels[:, 1])
                 if max_saturation > 80:
                     background_score = 0
                     if debug: print(f"  Contorno {i}: Salvado por color (Max Sat: {max_saturation})")
 
-                # SALVAGUARDA 2: Si es muy brillante (promedio V alto), NO es fondo (el fondo es negro)
+                # Si es muy brillante (promedio V alto), NO es fondo (el fondo es negro)
                 # El tapete negro tiene V bajo (< 60-70). Objetos blancos tienen V alto (> 100).
                 if mean_value > 80:
                     background_score = 0
@@ -220,9 +208,7 @@ class ObjectSegmenter:
 
                 if debug:
                     print(f"  Contorno {i} (Area {area:.0f}): Score {background_score}")
-                    # ... prints detallados ...
 
-                # Aumentamos el umbral de rechazo de 3 a 4 para ser más permisivos
                 if background_score >= 4:
                     if debug: print(f"  Contorno {i}: Rechazado por fondo (Score {background_score})")
                     continue
@@ -260,7 +246,6 @@ class ObjectSegmenter:
         hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
         
         # Estrategia 1: Detectar píxeles con saturación > 40 Y valor > 80 (excluir fondo oscuro)
-        # Aumentado de 30/60 a 40/80 para reducir ruido del tapete
         mask1 = cv2.inRange(hsv[:, :, 1], 40, 255)  # Saturación
         mask_value = cv2.inRange(hsv[:, :, 2], 80, 255)  # Valor (brillo)
         mask = cv2.bitwise_and(mask1, mask_value)
@@ -297,7 +282,6 @@ class ObjectSegmenter:
         
         # Dilatar para conectar bordes cercanos
         kernel = np.ones((3, 3), np.uint8)
-        # Reducido de 2 a 1 para evitar unir objetos muy cercanos
         edges_dilated = cv2.dilate(edges, kernel, iterations=1)
         
         return edges_dilated
@@ -316,8 +300,6 @@ class ObjectSegmenter:
             51, 5
         )
         
-        # Verificar si la máscara está invertida (fondo blanco)
-        # A veces con iluminación extraña puede invertirse
         h, w = adaptive.shape
         borders = np.concatenate([
             adaptive[0, :], adaptive[h-1, :],

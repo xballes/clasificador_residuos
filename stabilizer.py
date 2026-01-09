@@ -107,8 +107,6 @@ class WasteStabilizer:
         stabilized_results = []
         for track_id, track_data in self.tracks.items():
             # Solo devolver si el objeto fue visto en este frame (missing_count == 0)
-            # Opcional: podríamos devolver objetos "perdidos" brevemente (ghosts), 
-            # pero para visualización suele ser mejor solo mostrar lo que se ve.
             if track_data['missing_count'] == 0:
                 # Voto por mayoría
                 counts = Counter(track_data['history'])
@@ -118,11 +116,8 @@ class WasteStabilizer:
                 original_det = track_data['current_det']
                 result = original_det.copy()
                 result['class'] = most_common_class
-                result['track_id'] = track_id # Útil para debug
-                
-                # Opcional: recalcular confianza basada en estabilidad
-                # result['confidence'] = counts[most_common_class] / len(track_data['history'])
-                
+                result['track_id'] = track_id
+                                
                 stabilized_results.append(result)
                 
         return stabilized_results

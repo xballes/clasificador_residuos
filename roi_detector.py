@@ -11,7 +11,7 @@ class ROIDetector:
     - Excluyendo marcadores ArUco
     """
     
-    def __init__(self, margin: int = 10, board_inner_margin: int = 0):
+    def __init__(self, margin: int = 50, board_inner_margin: int = 0):
         """
         Args:
             margin: Margen adicional alrededor de áreas excluidas (píxeles)
@@ -73,14 +73,8 @@ class ROIDetector:
             if board_cnt is not None:
                 # Dibujar el tablero detectado
                 cv2.drawContours(mask, [board_cnt], -1, 255, -1)
-                info['board_contour'] = board_cnt
-
-                # --- NUEVO: recortar a un rectángulo interior (zona naranja) ---
-                # --- NUEVO: recortar a un rectángulo interior (zona naranja) ---
-                # Siempre calculamos esto para visualizar el ROI
+                info['board_contour'] = board_cntW
                 x, y, w_board, h_board = cv2.boundingRect(board_cnt)
-
-                # coordenadas del rectángulo interior
                 # Usamos el mismo margen para todos los lados
                 bottom_margin = self.board_inner_margin 
                 x_in = max(0, x + self.board_inner_margin)
@@ -116,7 +110,7 @@ class ROIDetector:
                 cv2.fillPoly(mask, [expanded_corners], 0)
                 info['excluded_areas'] += 1
 
-                # --- NUEVO: Excluir todo lo que esté a la DERECHA del ArUco ---
+                # --- Excluir todo lo que esté a la DERECHA del ArUco ---
                 # Encontrar la coordenada X más a la derecha del marcador (incluyendo margen)
                 max_x = np.max(expanded_corners[:, 0])
                 
@@ -128,7 +122,7 @@ class ROIDetector:
                                  0, -1)
                     info['excluded_areas'] += 1
 
-            # --- NUEVO: Excluir arriba y abajo de los ArUcos ---
+            # --- Excluir arriba y abajo de los ArUcos ---
             if len(aruco_markers) > 0:
                 # Recopilar todos los puntos de todos los marcadores
                 all_points = np.vstack(aruco_markers).reshape(-1, 2)
@@ -150,7 +144,7 @@ class ROIDetector:
         # 3. Detectar y excluir caja de la izquierda
         if detect_box:
             #box_region = self._detect_left_box(image)
-            box_region = None # Desactivado por petición del usuario
+            box_region = None # Desactivado
             if box_region is not None:
                 x, y, w_box, h_box = box_region
                 info['box_region'] = box_region

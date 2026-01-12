@@ -14,17 +14,9 @@ python fotografo.py
 
 ---
 
-### 2. Clasificación Manual de Datos (No hace falta ejecutar, ya esta hecho)
 
-```bash
-python clean_data.py --source capturas_buenas/real --dest capturas_buenas
-```
 
-**Controles:** `L` (lata), `B` (botella), `C` (carton), `S` (skip), `Q` (quit)
-
----
-
-### 3. Entrenamiento del Modelo ML (No hace falta ejecutar, ya esta hecho)
+### 2. Entrenamiento del Modelo ML (No hace falta ejecutar, ya esta hecho)
 
 ```bash
 python train_classifier.py --data_dir capturas_buenas --output_csv features_extracted.csv
@@ -32,7 +24,7 @@ python train_classifier.py --data_dir capturas_buenas --output_csv features_extr
 
 ---
 
-### 4. Clasificación de Residuos (Estos son los comandos buenos)
+### 3. Clasificación de Residuos (Estos son los comandos buenos)
 
 #### Imagen Individual
 

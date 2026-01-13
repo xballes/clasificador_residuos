@@ -2,6 +2,18 @@
 
 Sistema de clasificación automática de residuos (latas, botellas, cartón) usando visión por computadora y machine learning.
 
+## Resumen del Proyecto
+
+Este proyecto implementa un pipeline completo de visión por computador que procesa imágenes en tiempo real para identificar tipos de residuos. El flujo de trabajo consta de cuatro etapas principales:
+
+1.  **Preprocesamiento y ROI**: Calibración de cámara y detección de la zona de trabajo útil, excluyendo elementos distractores como marcadores ArUco o cajas mediante máscaras dinámicas.
+2.  **Segmentación Multi-modal**: Separación precisa de los objetos del fondo utilizando una combinación de color (HSV), detección de bordes (Canny) y umbralizado adaptativo.
+3.  **Extracción de Características**: Análisis de cada objeto para obtener métricas geométricas (circularidad, relación de aspecto), de color (histogramas HSV) y de textura (brillos especulares para detectar metales).
+4.  **Clasificación**:
+    *   **ML Classifier (Principal)**: Utiliza modelos de Machine Learning (Random Forest/SVM/KNN) entrenados con características extraídas para una clasificación robusta.
+
+El sistema soporta modos de operación en tiempo real (webcam), procesamiento por lotes y captura estática, ofreciendo visualización de resultados y coordenadas relativas en centímetros.
+
 ## Ejemplos de Uso
 
 ### 1. Captura de Imágenes (No hace falta ejecutar)
